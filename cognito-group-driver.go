@@ -9,7 +9,7 @@ import (
 )
 
 func init() {
-	cloudy.GroupProviders.Register(AwsCognito, func(cfg interface{}) (cloudy.Groups, error) {
+	cloudy.GroupProviders.Register(AwsCognito, func(cfg interface{}) (cloudy.GroupManager, error) {
 		cogCfg := cfg.(*CognitoConfig)
 		if cogCfg == nil {
 			return nil, cloudy.InvalidConfigurationError
