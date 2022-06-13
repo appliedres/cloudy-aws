@@ -2,7 +2,9 @@ package cloudyaws
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/appliedres/cloudy"
 	"github.com/appliedres/cloudy/models"
@@ -28,14 +30,14 @@ const Attr_middleName = "middle name"
 const Attr_website = "website"
 const Attr_name = "name"
 
+const DefaultUserAttributes = []string {
+	Attr_email, Attr_name, Attr_givenName, Attr_familyName
+}
+
+
+
 func init() {
-	cloudy.UserProviders.Register(AwsCognito, func(cfg interface{}) (cloudy.UserManager, error) {
-		cogCfg := cfg.(*CognitoConfig)
-		if cogCfg == nil {
-			return nil, cloudy.InvalidConfigurationError
-		}
-		return NewCognitoUserManager(cogCfg)
-	})
+	cloudy.UserProviders.Register(AwsCognito, &CognitoUserManagerFactory{})
 }
 
 /*
@@ -58,6 +60,43 @@ carefully. You can also add custom attributes.
 
 If AWS Cognito is used as the ONLY user management approach then select the fields that you need.
 */
+
+type CognitoUserManagerFactory struct{}
+
+func (c *CognitoUserManagerFactory) Create(cfg interface{}) (cloudy.UserManager, error) {
+	cogCfg := cfg.(*CognitoConfig)
+	if cogCfg == nil {
+		return nil, cloudy.InvalidConfigurationError
+	}
+	return NewCognitoUserManager(cogCfg)
+}
+
+func (c *CognitoUserManagerFactory) ToConfig(config map[string]interface{}) (interface{}, error) {
+	var found bool
+	cogCfg := &CognitoConfig{}
+	cogCfg.PoolID, found = cloudy.MapKeyStr(config, "PoolID", true)
+	if !found {
+		return nil, errors.New("PoolID required")
+	}
+
+	cogCfg.Region, found = cloudy.MapKeyStr(config, "Region", true)
+	if !found {
+		return nil, errors.New("Region required")
+	}
+
+	userAttributes, found := cloudy.MapKeyStr(config, "UserAttributes", true)
+	if !found {
+		return cogCfg.UserAttributes = DefaultUserAttributes
+	} else{
+		attrs := strings.Split(userAttributes, ",")
+		for i, attr := range attrs {
+			attrs[i] = strings.ToLower(attr)
+		}
+		cogCfg.UserAttributes = attrs
+	}
+
+	return cogCfg, nil
+}
 
 type CognitoUserManager struct {
 	Client *Cognito
@@ -123,4 +162,19 @@ func (c *CognitoUserManager) Disable(ctx context.Context, uid string) error {
 
 func (c *CognitoUserManager) DeleteUser(ctx context.Context, uid string) error {
 	return c.Client.DeleteUser(uid)
+}
+
+func (c *CognitoUserManager) ForceUserName(ctx context.Context, name string) (string, bool, error) {
+	// No validation right now
+
+	u, err := c.GetUser(ctx, name)
+	if err != nil {
+		return name, false, err
+	}
+
+	if u != nil {
+		return name, true, nil
+	}
+
+	return name, false, nil
 }

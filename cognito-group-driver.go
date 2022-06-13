@@ -2,6 +2,7 @@ package cloudyaws
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/appliedres/cloudy"
@@ -9,13 +10,7 @@ import (
 )
 
 func init() {
-	cloudy.GroupProviders.Register(AwsCognito, func(cfg interface{}) (cloudy.GroupManager, error) {
-		cogCfg := cfg.(*CognitoConfig)
-		if cogCfg == nil {
-			return nil, cloudy.InvalidConfigurationError
-		}
-		return NewCognitoUserManager(cogCfg)
-	})
+	cloudy.GroupProviders.Register(AwsCognito, &CognitoGroupManagerFactory{})
 }
 
 /*
@@ -40,6 +35,37 @@ carefully. You can also add custom attributes.
 If AWS Cognito is used as the ONLY user management approach then select the fields that you need.
 
 */
+
+type CognitoGroupManagerFactory struct{}
+
+func (c *CognitoGroupManagerFactory) Create(cfg interface{}) (cloudy.GroupManager, error) {
+	cogCfg := cfg.(*CognitoConfig)
+	if cogCfg == nil {
+		return nil, cloudy.InvalidConfigurationError
+	}
+	return NewCognitoUserManager(cogCfg)
+}
+
+func (c *CognitoGroupManagerFactory) ToConfig(config map[string]interface{}) (interface{}, error) {
+	var found bool
+	cogCfg := &CognitoConfig{}
+	cogCfg.PoolID, found = cloudy.MapKeyStr(config, "PoolID", true)
+	if !found {
+		return nil, errors.New("PoolID required")
+	}
+
+	cogCfg.Region, found = cloudy.MapKeyStr(config, "Region", true)
+	if !found {
+		return nil, errors.New("Region required")
+	}
+
+	cogCfg.Region, found = cloudy.MapKeyStr(config, "UserAttributes", true)
+	if !found {
+		return nil, errors.New("Region required")
+	}
+
+	return cogCfg, nil
+}
 
 type CognitoGroupManager struct {
 	Client *Cognito
