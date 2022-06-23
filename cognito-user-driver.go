@@ -30,11 +30,9 @@ const Attr_middleName = "middle name"
 const Attr_website = "website"
 const Attr_name = "name"
 
-const DefaultUserAttributes = []string {
-	Attr_email, Attr_name, Attr_givenName, Attr_familyName
+var DefaultUserAttributes = []string{
+	Attr_email, Attr_name, Attr_givenName, Attr_familyName,
 }
-
-
 
 func init() {
 	cloudy.UserProviders.Register(AwsCognito, &CognitoUserManagerFactory{})
@@ -66,7 +64,7 @@ type CognitoUserManagerFactory struct{}
 func (c *CognitoUserManagerFactory) Create(cfg interface{}) (cloudy.UserManager, error) {
 	cogCfg := cfg.(*CognitoConfig)
 	if cogCfg == nil {
-		return nil, cloudy.InvalidConfigurationError
+		return nil, cloudy.ErrInvalidConfiguration
 	}
 	return NewCognitoUserManager(cogCfg)
 }
@@ -86,8 +84,8 @@ func (c *CognitoUserManagerFactory) ToConfig(config map[string]interface{}) (int
 
 	userAttributes, found := cloudy.MapKeyStr(config, "UserAttributes", true)
 	if !found {
-		return cogCfg.UserAttributes = DefaultUserAttributes
-	} else{
+		cogCfg.UserAttributes = DefaultUserAttributes
+	} else {
 		attrs := strings.Split(userAttributes, ",")
 		for i, attr := range attrs {
 			attrs[i] = strings.ToLower(attr)

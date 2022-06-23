@@ -394,6 +394,15 @@ func (c *Cognito) CreateGroup(group *models.Group) error {
 	return err
 }
 
+func (c *Cognito) DeleteGroup(grp string) error {
+	_, err := c.Svc.DeleteGroup(&cognitoidentityprovider.DeleteGroupInput{
+		UserPoolId: aws.String(c.CognitoPoolID),
+		GroupName:  aws.String(grp),
+	})
+
+	return err
+}
+
 //ListGroups  calls the cognitofunction
 func (c *Cognito) ListGroups() ([]*models.Group, error) {
 	input := &cognitoidentityprovider.ListGroupsInput{
@@ -425,6 +434,21 @@ func (c *Cognito) ListGroups() ([]*models.Group, error) {
 	}
 
 	return groupNames, nil
+}
+
+func (c *Cognito) GetGroup(grpId string) (*models.Group, error) {
+	out, err := c.Svc.GetGroup(&cognitoidentityprovider.GetGroupInput{
+		UserPoolId: aws.String(c.CognitoPoolID),
+		GroupName:  aws.String(grpId),
+	})
+	if err != nil {
+		return nil, err
+	}
+	grp := &models.Group{}
+	grp.ID = *out.Group.GroupName
+	grp.Name = *out.Group.Description
+
+	return grp, nil
 }
 
 //AddUserToGroup  calls the cognitofunction

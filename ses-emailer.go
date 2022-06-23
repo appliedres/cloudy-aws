@@ -16,17 +16,24 @@ import (
 )
 
 func init() {
-	cloudy.EmailerProviders.Register(AwsCognito, func(cfg interface{}) (cloudy.Emailer, error) {
-		cogCfg := cfg.(*CognitoConfig)
-		if cogCfg == nil {
-			return nil, cloudy.InvalidConfigurationError
-		}
-		return NewSESEmailer()
-	})
+	cloudy.EmailerProviders.Register(AwsCognito, &SESEmailerFactory{})
 }
 
-type SESEmailerConfig struct {
+type SESEmailerFactory struct{}
+
+func (ses *SESEmailerFactory) Create(cfg interface{}) (cloudy.Emailer, error) {
+	cogCfg := cfg.(*CognitoConfig)
+	if cogCfg == nil {
+		return nil, cloudy.ErrInvalidConfiguration
+	}
+	return NewSESEmailer()
 }
+
+func (ses *SESEmailerFactory) ToConfig(config map[string]interface{}) (interface{}, error) {
+	return nil, nil
+}
+
+type SESEmailerConfig struct{}
 
 // The SES Emailer is the AWS Simple Email Serivice implementation of the cloudy `Emailer` interface.
 

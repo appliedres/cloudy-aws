@@ -41,9 +41,9 @@ type CognitoGroupManagerFactory struct{}
 func (c *CognitoGroupManagerFactory) Create(cfg interface{}) (cloudy.GroupManager, error) {
 	cogCfg := cfg.(*CognitoConfig)
 	if cogCfg == nil {
-		return nil, cloudy.InvalidConfigurationError
+		return nil, cloudy.ErrInvalidConfiguration
 	}
-	return NewCognitoUserManager(cogCfg)
+	return NewCognitoGroupManager(cogCfg)
 }
 
 func (c *CognitoGroupManagerFactory) ToConfig(config map[string]interface{}) (interface{}, error) {
@@ -91,21 +91,21 @@ func NewCognitoGroupManager(cfg *CognitoConfig) (*CognitoGroupManager, error) {
 	}, nil
 }
 
-func (c *CognitoUserManager) ListGroups(ctx context.Context, uid string) ([]*models.Group, error) {
+func (c *CognitoGroupManager) ListGroups(ctx context.Context) ([]*models.Group, error) {
 	return c.Client.ListGroups()
 }
 
-func (c *CognitoUserManager) GetUserGroups(ctx context.Context, uid string) ([]*models.Group, error) {
+func (c *CognitoGroupManager) GetUserGroups(ctx context.Context, uid string) ([]*models.Group, error) {
 	groups, err := c.Client.GetUserGroups(uid)
 	return groups, err
 }
 
-func (c *CognitoUserManager) NewGroup(ctx context.Context, grp *models.Group) (*models.Group, error) {
+func (c *CognitoGroupManager) NewGroup(ctx context.Context, grp *models.Group) (*models.Group, error) {
 	err := c.Client.CreateGroup(grp)
 	return grp, err
 }
 
-func (c *CognitoUserManager) AddMembers(ctx context.Context, groupId string, userIds []string) error {
+func (c *CognitoGroupManager) AddMembers(ctx context.Context, groupId string, userIds []string) error {
 	merr := cloudy.MultiError()
 
 	for _, uid := range userIds {
@@ -118,7 +118,7 @@ func (c *CognitoUserManager) AddMembers(ctx context.Context, groupId string, use
 	return merr.AsErr()
 }
 
-func (c *CognitoUserManager) RemoveMembers(ctx context.Context, groupId string, userIds []string) error {
+func (c *CognitoGroupManager) RemoveMembers(ctx context.Context, groupId string, userIds []string) error {
 	merr := cloudy.MultiError()
 
 	for _, uid := range userIds {
@@ -131,12 +131,20 @@ func (c *CognitoUserManager) RemoveMembers(ctx context.Context, groupId string, 
 	return merr.AsErr()
 }
 
-func (c *CognitoUserManager) UpdateGroup(ctx context.Context, grp *models.Group) (bool, error) {
+func (c *CognitoGroupManager) UpdateGroup(ctx context.Context, grp *models.Group) (bool, error) {
 	return false, nil
 
 }
 
-func (c *CognitoUserManager) GetGroupMembers(ctx context.Context, grpId string) ([]*models.User, error) {
+func (c *CognitoGroupManager) GetGroupMembers(ctx context.Context, grpId string) ([]*models.User, error) {
 	users, err := c.Client.ListAllUsersInGroup(grpId)
 	return users, err
+}
+
+func (c *CognitoGroupManager) DeleteGroup(ctx context.Context, grpId string) error {
+	return c.Client.DeleteGroup(grpId)
+}
+
+func (c *CognitoGroupManager) GetGroup(ctx context.Context, grpId string) (*models.Group, error) {
+	return c.Client.GetGroup(grpId)
 }

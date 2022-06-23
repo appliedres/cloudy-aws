@@ -1,9 +1,12 @@
 package cloudyaws
 
 import (
+	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 
+	"github.com/appliedres/cloudy"
 	"github.com/appliedres/cloudy/secrets"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
@@ -20,16 +23,16 @@ func init() {
 type AwsSecretManagerFactory struct{}
 
 func (c *AwsSecretManagerFactory) Create(cfg interface{}) (secrets.SecretProvider, error) {
-	sec := cfg.(*AwsSecreatManager)
+	sec := cfg.(*AwsSecretManager)
 	if sec == nil {
-		return nil, cloudy.InvalidConfigurationError
+		return nil, cloudy.ErrInvalidConfiguration
 	}
-	return sec
+	return sec, nil
 }
 
 func (c *AwsSecretManagerFactory) ToConfig(config map[string]interface{}) (interface{}, error) {
 	var found bool
-	cfg := &AwsSecreatManager{}
+	cfg := &AwsSecretManager{}
 	cfg.Region, found = cloudy.MapKeyStr(config, "Region", true)
 	if !found {
 		return nil, errors.New("Region required")
@@ -37,11 +40,11 @@ func (c *AwsSecretManagerFactory) ToConfig(config map[string]interface{}) (inter
 	return cfg, nil
 }
 
-type AwsSecreatManager struct {
+type AwsSecretManager struct {
 	Region string
 }
 
-func (a *AwsSecreatManager) SaveSecret(ctx context.Context, key string, secret string) error {
+func (a *AwsSecretManager) SaveSecret(ctx context.Context, key string, secret string) error {
 	region := a.Region
 
 	//Create a Secrets Manager client
@@ -49,7 +52,7 @@ func (a *AwsSecreatManager) SaveSecret(ctx context.Context, key string, secret s
 		aws.NewConfig().WithRegion(region))
 
 	input := &secretsmanager.PutSecretValueInput{
-		Name:     aws.String(secretName),
+		SecretId:     aws.String(key),
 		SecretString: aws.String(secret),
 	}
 
@@ -60,7 +63,7 @@ func (a *AwsSecreatManager) SaveSecret(ctx context.Context, key string, secret s
 	return nil
 }
 
-func (a *AwsSecreatManager) SaveSecretBinary(ctx context.Context, key string, secret []byte]) error {
+func (a *AwsSecretManager) SaveSecretBinary(ctx context.Context, key string, secret []byte) error {
 	region := a.Region
 
 	//Create a Secrets Manager client
@@ -68,7 +71,7 @@ func (a *AwsSecreatManager) SaveSecretBinary(ctx context.Context, key string, se
 		aws.NewConfig().WithRegion(region))
 
 	input := &secretsmanager.PutSecretValueInput{
-		Name:     aws.String(secretName),
+		SecretId:     aws.String(key),
 		SecretBinary: secret,
 	}
 
@@ -79,23 +82,33 @@ func (a *AwsSecreatManager) SaveSecretBinary(ctx context.Context, key string, se
 	return nil
 }
 
-func (a *AwsSecreatManager) GetSecretBinary(ctx context.Context, key string) ([]byte, error) {
+func (a *AwsSecretManager) GetSecretBinary(ctx context.Context, key string) ([]byte, error) {
 	_, data, err := a.getRawSecret(key)
 	return data, err
 }
-func (a *AwsSecreatManager) GetSecret(key string) (ctx context.Context, string, error) {
+func (a *AwsSecretManager) GetSecret(ctx context.Context, key string) (string, error) {
 	str, _, err := a.getRawSecret(key)
 	return str, err
 }
 
-func (a *AwsSecreatManager) getRawSecret(key string) (string, []byte, error) {
+func (a *AwsSecretManager) DeleteSecret(ctx context.Context, key string) error {
+	svc := secretsmanager.New(session.New(), aws.NewConfig().WithRegion(a.Region))
+
+	_, err := svc.DeleteSecret(&secretsmanager.DeleteSecretInput{
+		SecretId: aws.String(key),
+	})
+
+	return err
+}
+
+func (a *AwsSecretManager) getRawSecret(key string) (string, []byte, error) {
 	region := a.Region
 
 	//Create a Secrets Manager client
 	svc := secretsmanager.New(session.New(),
 		aws.NewConfig().WithRegion(region))
 	input := &secretsmanager.GetSecretValueInput{
-		SecretId:     aws.String(secretName),
+		SecretId:     aws.String(key),
 		VersionStage: aws.String("AWSCURRENT"), // VersionStage defaults to AWSCURRENT if unspecified
 	}
 
@@ -131,12 +144,12 @@ func (a *AwsSecreatManager) getRawSecret(key string) (string, []byte, error) {
 			// Message from an error.
 			fmt.Println(err.Error())
 		}
-		return "", err
+		return "", nil, err
 	}
 
 	// Decrypts secret using the associated KMS CMK.
 	// Depending on whether the secret is a string or binary, one of these fields will be populated.
-	var secretString, decodedBinarySecret string
+	var secretString string
 
 	if result.SecretString != nil {
 		secretString = *result.SecretString
@@ -144,10 +157,10 @@ func (a *AwsSecreatManager) getRawSecret(key string) (string, []byte, error) {
 	}
 
 	decodedBinarySecretBytes := make([]byte, base64.StdEncoding.DecodedLen(len(result.SecretBinary)))
-	len, err := base64.StdEncoding.Decode(decodedBinarySecretBytes, result.SecretBinary)
+	_, err = base64.StdEncoding.Decode(decodedBinarySecretBytes, result.SecretBinary)
 	if err != nil {
 		fmt.Println("Base64 Decode Error:", err)
-		return "", err
+		return "", nil, err
 	}
 	return "", decodedBinarySecretBytes, err
 }
