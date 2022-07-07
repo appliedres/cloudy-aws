@@ -29,7 +29,7 @@ func (ses *SESEmailerFactory) Create(cfg interface{}) (cloudy.Emailer, error) {
 	return NewSESEmailer()
 }
 
-func (ses *SESEmailerFactory) ToConfig(config map[string]interface{}) (interface{}, error) {
+func (ses *SESEmailerFactory) FromEnv(env *cloudy.SegmentedEnvironment) (interface{}, error) {
 	return nil, nil
 }
 
