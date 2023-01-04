@@ -29,7 +29,7 @@ func (ses *SESEmailerFactory) Create(cfg interface{}) (cloudy.Emailer, error) {
 	return NewSESEmailer()
 }
 
-func (ses *SESEmailerFactory) FromEnv(env *cloudy.SegmentedEnvironment) (interface{}, error) {
+func (ses *SESEmailerFactory) FromEnv(env *cloudy.Environment) (interface{}, error) {
 	return nil, nil
 }
 
@@ -135,7 +135,7 @@ func (m *SESEmailer) ResumeSending() {
 	fmt.Printf("Email Sending Resumes")
 }
 
-//DecodeSendError turns the error into a status string
+// DecodeSendError turns the error into a status string
 func (m *SESEmailer) DecodeSendError(err error) string {
 	if aerr, ok := err.(awserr.Error); ok {
 		switch aerr.Code() {
@@ -159,7 +159,7 @@ func (m *SESEmailer) DecodeSendError(err error) string {
 	}
 }
 
-//Quota gets the quota for sending
+// Quota gets the quota for sending
 func (m *SESEmailer) Quota() (*EmailQuota, error) {
 
 	resp, err := m.Client.GetSendQuota(&ses.GetSendQuotaInput{})

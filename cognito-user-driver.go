@@ -69,7 +69,7 @@ func (c *CognitoUserManagerFactory) Create(cfg interface{}) (cloudy.UserManager,
 	return NewCognitoUserManager(cogCfg)
 }
 
-func (c *CognitoUserManagerFactory) FromEnv(env *cloudy.SegmentedEnvironment) (interface{}, error) {
+func (c *CognitoUserManagerFactory) FromEnv(env *cloudy.Environment) (interface{}, error) {
 	var found bool
 	cogCfg := &CognitoConfig{}
 	cogCfg.PoolID, found = cloudy.MapKeyStr(config, "PoolID", true)

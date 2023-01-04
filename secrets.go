@@ -30,7 +30,7 @@ func (c *AwsSecretManagerFactory) Create(cfg interface{}) (secrets.SecretProvide
 	return sec, nil
 }
 
-func (c *AwsSecretManagerFactory) FromEnv(env *cloudy.SegmentedEnvironment) (interface{}, error) {
+func (c *AwsSecretManagerFactory) FromEnv(env *cloudy.Environment) (interface{}, error) {
 	var found bool
 	cfg := &AwsSecretManager{}
 	cfg.Region, found = cloudy.MapKeyStr(config, "Region", true)

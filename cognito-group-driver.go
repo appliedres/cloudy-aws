@@ -46,7 +46,7 @@ func (c *CognitoGroupManagerFactory) Create(cfg interface{}) (cloudy.GroupManage
 	return NewCognitoGroupManager(cogCfg)
 }
 
-func (c *CognitoGroupManagerFactory) FromEnv(env *cloudy.SegmentedEnvironment) (interface{}, error) {
+func (c *CognitoGroupManagerFactory) FromEnv(env *cloudy.Environment) (interface{}, error) {
 	var found bool
 	cogCfg := &CognitoConfig{}
 	cogCfg.PoolID, found = cloudy.MapKeyStr(config, "PoolID", true)
