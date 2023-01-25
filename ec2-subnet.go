@@ -11,22 +11,30 @@ import (
 	"github.com/aws/aws-sdk-go/service/ec2"
 )
 
-// Finds a subnet with available IPs
+// Returns the first subnet found with IP availability out of availableSubnets
 func (vmc *AwsEc2Controller) FindBestSubnet(ctx context.Context, availableSubnets []string) (string, error) {
-	for _, subnet := range availableSubnets {
-		available, err := vmc.GetAvailableIPs(ctx, subnet)
+	cloudy.Info(ctx, "Starting FindBestSubnet")
+	
+	if len(availableSubnets) == 0 {
+		return "", cloudy.Error(ctx, "No subnets available")
+	}
+	
+	for _, subnetID := range availableSubnets {
+		available, err := vmc.GetAvailableIPs(ctx, subnetID)
 
 		if err != nil {
 			return "", err
 		}
-		cloudy.Info(ctx, "Available IPs for subnet %s: %d", subnet, available)
+		cloudy.Info(ctx, "Available IPs for subnetID %s: %d", subnetID, available)
 
 		if available > 0 {
-			return subnet, nil
+			cloudy.Info(ctx, "Selected subnet with availability: ID='%s'", subnetID)
+			return subnetID, nil
 		}
 	}
 
 	// No available subnets
+	cloudy.Info(ctx, "No subnets with IP availability")
 	return "", nil
 }
 
@@ -69,8 +77,6 @@ func (vmc *AwsEc2Controller) GetAvailableIPs(ctx context.Context, subnetID strin
 
 	subnet := foundSubnets.Subnets[0]
 	
-	fmt.Printf("subnet=\n%v\n", subnet)
-
 	availableIPs64 := *subnet.AvailableIpAddressCount
 
 	availableIPs := int(availableIPs64)

@@ -2,13 +2,14 @@ package cloudyaws
 
 import (
 	"context"
-	"strings"
 	"fmt"
+	"strings"
 
 	"github.com/appliedres/cloudy"
 	cloudyvm "github.com/appliedres/cloudy/vm"
 
 	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/service/ec2"
 )
 
@@ -43,7 +44,7 @@ func ListAllInstances(ctx context.Context, vmc *AwsEc2Controller) ([]*cloudyvm.V
 
 	for _, reservation := range all.Reservations {
 		for _, instance := range reservation.Instances {
-			fmt.Printf("\n======================================\nFound running instance: %s\n", *instance.InstanceId)
+			fmt.Printf("Found instance: %s\n", *instance.InstanceId)
 
 			vmStatus := &cloudyvm.VirtualMachineStatus{}
 
@@ -69,36 +70,39 @@ func ListInstancesWithTag(ctx context.Context, vmc *AwsEc2Controller, tag string
 	return nil, nil
 }
 
-func InstanceStatus(ctx context.Context, vmc *AwsEc2Controller, vmName string) (*cloudyvm.VirtualMachineStatus, error) {
+func InstanceStatusByID(ctx context.Context, vmc *AwsEc2Controller, instanceID string) (*cloudyvm.VirtualMachineStatus, error) {
+	cloudy.Info(ctx, "retrieving status for instance ID '%s'", instanceID)
 	var err error
 
 	var returnList []*cloudyvm.VirtualMachineStatus
 	var result *cloudyvm.VirtualMachineStatus
 
 	instances, err := vmc.Ec2Client.DescribeInstances(&ec2.DescribeInstancesInput{
-		Filters: []*ec2.Filter{
-			{
-				Name: aws.String("tag:Name"),
-				Values: []*string{
-					aws.String(vmName),
-				},
-			},
+		InstanceIds: []*string{
+			aws.String(instanceID),
 		},
 	})
-
-	fmt.Printf("instances:\n%v\n", *instances)
-
 	if err != nil {
+		if aerr, ok := err.(awserr.Error); ok {
+			switch aerr.Code() {
+			// TODO: case for instance ID not found
+			default:
+				fmt.Println(aerr.Error())
+			}
+		} else {
+			// Print the error, cast err to awserr.Error to get the Code and
+			// Message from an error.
+			fmt.Println(err.Error())
+		}
 		return nil, err
 	}
 
 	for _, reservation := range instances.Reservations {
 		for _, instance := range reservation.Instances {
-			fmt.Printf("\n======================================\nFound running instance: %s\n", *instance.InstanceId)
+			fmt.Printf("Found instance: %s\n", *instance.InstanceId)
 
 			vmStatus := &cloudyvm.VirtualMachineStatus{}
 
-			// TODO: Handle no tags, instance could not have name tag or any tags
 			vmStatus.Name = ""
 			for _, t := range instance.Tags {
 				if *t.Key == "Name" {
@@ -114,12 +118,79 @@ func InstanceStatus(ctx context.Context, vmc *AwsEc2Controller, vmName string) (
 
 	if len(returnList) > 1 {
 		result = returnList[0]
+		err = fmt.Errorf("more than one instance found with ID '%s', returning only the first", instanceID)
+	} else if len(returnList) == 1 {
+		result = returnList[0]
+	} else {
+		return nil, err
+	}
+	return result, err
+}
+
+// given a VM Name, find the status of the underlying instance
+// The instance will have a name tag matching the VM Name
+// returns nil if no matching instance found
+func InstanceStatusByVmName(ctx context.Context, vmc *AwsEc2Controller, vmName string) (*cloudyvm.VirtualMachineStatus, error) {
+	// VM ID is stored as Instance Name
+	
+	var err error
+
+	var returnList []*cloudyvm.VirtualMachineStatus
+	var result *cloudyvm.VirtualMachineStatus
+
+	instances, err := vmc.Ec2Client.DescribeInstances(&ec2.DescribeInstancesInput{
+		Filters: []*ec2.Filter{
+			{
+				Name: aws.String("tag:Name"),
+				Values: []*string{
+					aws.String(vmName),
+				},
+			},
+		},
+	})
+	
+	if err != nil {
+		if aerr, ok := err.(awserr.Error); ok {
+			switch aerr.Code() {
+			default:
+				fmt.Println(aerr.Error())
+			}
+		} else {
+			// Print the error, cast err to awserr.Error to get the Code and
+			// Message from an error.
+			fmt.Println(err.Error())
+		}
+		return nil, err
+	} else if instances == nil {
+		cloudy.Info(ctx, "No instances found with Instance Name Tag '%s'", vmName)
+		return nil, err
+	}
+
+	for _, reservation := range instances.Reservations {
+		for _, instance := range reservation.Instances {
+			vmStatus := &cloudyvm.VirtualMachineStatus{}
+
+			vmStatus.Name = ""
+			for _, t := range instance.Tags {
+				if *t.Key == "Name" {
+					vmStatus.Name = *t.Value
+				}
+			}
+			vmStatus.PowerState = *instance.State.Name
+			vmStatus.ID = *instance.InstanceId
+
+			cloudy.Info(ctx, "found instance '%s', status='%s'", vmStatus.ID, vmStatus.PowerState)
+			returnList = append(returnList, vmStatus)
+		}
+	}
+
+	if len(returnList) > 1 {
+		result = returnList[0]
 		err = fmt.Errorf("more than one instance found with name '%s', returning only the first", vmName)
 	} else if len(returnList) == 1 {
 		result = returnList[0]
 	} else {
-		result = nil
-		err = fmt.Errorf("no instances found with name '%s'", vmName)
+		return nil, err
 	}
 	return result, err
 }
@@ -206,24 +277,28 @@ func StopInstance(ctx context.Context, vmc *AwsEc2Controller, vmName string, wai
 	return nil
 }
 
-func TerminateInstance(ctx context.Context, vmc *AwsEc2Controller, vmName string, wait bool) error {
+func TerminateVmInstance(ctx context.Context, vmc *AwsEc2Controller, vmName string, wait bool) error {
+	// TODO: switch to using instance ID as it is properly unique
+	cloudy.Info(ctx, "Terminating Instance with name '%s'", vmName)  
 	var err error
-	var instStatus *cloudyvm.VirtualMachineStatus
+	var vmStatus *cloudyvm.VirtualMachineStatus
 
-	instStatus, err = vmc.Status(ctx, vmName)
-
+	vmStatus, err = vmc.Status(ctx, vmName)
 	if err != nil {
 		return err
+	} else if vmStatus == nil {
+		// instance not found by name
+		cloudy.Info(ctx, "Could not terminate instance, Instance named '%s' not found", vmName)
+		return nil
 	}
 
 	input := &ec2.TerminateInstancesInput{
 		InstanceIds: []*string{
-			aws.String(instStatus.ID),
+			aws.String(vmStatus.ID),
 		},
 	}
 
 	_, err = vmc.Ec2Client.TerminateInstances(input)
-
 	if err != nil {
 		return err
 	}

@@ -2,7 +2,6 @@ package cloudyaws
 
 import (
 	"context"
-	"strings"
 	"fmt"
 
 	"github.com/appliedres/cloudy"
@@ -12,7 +11,6 @@ import (
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/ec2"
 	"github.com/aws/aws-sdk-go/service/servicequotas"
-
 )
 
 const AwsEc2 = "aws-ec2"
@@ -23,15 +21,15 @@ func init() {
 
 type AwsEc2ControllerConfig struct {
 	// TODO: confirm all necessary config items are added
-	// AzureCredentials
-	// SubscriptionID string
+	// AwsCredentials
+	// subscriptionId string
 	// ResourceGroup  string
 
 	// ??
 	// NetworkResourceGroup     string   // From Environment Variable
 	// SourceImageGalleryName   string   // From Environment Variable
 	// Vnet                     string   // From Environment Variable
-	AvailableSubnets         []string // From Environment Variable
+	AvailableSubnets []string // From Environment Variable
 	// NetworkSecurityGroupName string   // From Environment Variable
 	// NetworkSecurityGroupID   string   // From Environment Variable
 	// SaltCmd                  string   // From Environment Variable
@@ -43,9 +41,9 @@ type AwsEc2ControllerConfig struct {
 }
 
 type AwsEc2Controller struct {
-	Quotas    	*servicequotas.ServiceQuotas
-	Ec2Client 	*ec2.EC2
-	Config		*AwsEc2ControllerConfig
+	Quotas    *servicequotas.ServiceQuotas
+	Ec2Client *ec2.EC2
+	Config    *AwsEc2ControllerConfig
 }
 
 type AwsEc2ControllerFactory struct{}
@@ -96,9 +94,9 @@ func (f *AwsEc2ControllerFactory) FromEnv(env *cloudy.Environment) (interface{},
 }
 
 func NewAwsEc2Controller(ctx context.Context, config *AwsEc2ControllerConfig) (*AwsEc2Controller, error) {
-	
+
 	// TODO: switch to STS credentials https://docs.aws.amazon.com/sdk-for-go/api/aws/credentials/stscreds/
-	
+
 	sess := session.Must(session.NewSessionWithOptions(session.Options{
 
 		// // Provide SDK Config options, such as Region.
@@ -114,10 +112,13 @@ func NewAwsEc2Controller(ctx context.Context, config *AwsEc2ControllerConfig) (*
 	ec2client := ec2.New(sess)
 
 	return &AwsEc2Controller{
-		Quotas:    	quotas,
-		Ec2Client: 	ec2client,
+		Quotas:    quotas,
+		Ec2Client: ec2client,
+		Config:    config,
 	}, nil
 }
+
+// TODO: Validate vmName inputs, ensure it can be stored as 'Name' tag
 
 func (vmc *AwsEc2Controller) ListAll(ctx context.Context) ([]*cloudyvm.VirtualMachineStatus, error) {
 	return ListAllInstances(ctx, vmc)
@@ -128,7 +129,7 @@ func (vmc *AwsEc2Controller) ListWithTag(ctx context.Context, tag string) ([]*cl
 }
 
 func (vmc *AwsEc2Controller) Status(ctx context.Context, vmName string) (*cloudyvm.VirtualMachineStatus, error) {
-	return InstanceStatus(ctx, vmc, vmName)
+	return InstanceStatusByVmName(ctx, vmc, vmName)
 }
 
 func (vmc *AwsEc2Controller) SetState(ctx context.Context, state cloudyvm.VirtualMachineAction, vmName string, wait bool) (*cloudyvm.VirtualMachineStatus, error) {
@@ -144,11 +145,11 @@ func (vmc *AwsEc2Controller) Stop(ctx context.Context, vmName string, wait bool)
 }
 
 func (vmc *AwsEc2Controller) Terminate(ctx context.Context, vmName string, wait bool) error {
-	return TerminateInstance(ctx, vmc, vmName, wait)
+	return TerminateVmInstance(ctx, vmc, vmName, wait)
 }
 
 func (vmc *AwsEc2Controller) Create(ctx context.Context, vm *cloudyvm.VirtualMachineConfiguration) (*cloudyvm.VirtualMachineConfiguration, error) {
-	cloudy.Info(ctx, "[%s] Starting ValidateConfiguration", vm.ID)
+	cloudy.Info(ctx, "[%s] Starting Create", vm.ID)
 	err := ValidateConfiguration(ctx, vm)
 	if err != nil {
 		return vm, err
@@ -165,8 +166,8 @@ func (vmc *AwsEc2Controller) Create(ctx context.Context, vm *cloudyvm.VirtualMac
 		cloudy.Info(ctx, "[%s] Using existing NIC: %s", vm.ID, network.ID)
 		vm.PrimaryNetwork = network
 	} else {
-		// Check / Create the Network Security Group
-		cloudy.Info(ctx, "[%s] Starting FindBestSubnet: %s", vm.ID, vmc.Config.AvailableSubnets)
+		// No existing NIC, create one
+		cloudy.Info(ctx, "[%s] No NIC found, creating one", vm.ID)
 		subnetId, err := vmc.FindBestSubnet(ctx, vmc.Config.AvailableSubnets)
 		if err != nil {
 			return vm, err
@@ -176,7 +177,6 @@ func (vmc *AwsEc2Controller) Create(ctx context.Context, vm *cloudyvm.VirtualMac
 		}
 
 		// Check / Create the Network Interface
-		cloudy.Info(ctx, "[%s] Starting CreateNIC", vm.ID)
 		err = vmc.CreateNIC(ctx, vm, subnetId)
 		if err != nil {
 			return vm, err
@@ -184,15 +184,74 @@ func (vmc *AwsEc2Controller) Create(ctx context.Context, vm *cloudyvm.VirtualMac
 	}
 
 	cloudy.Info(ctx, "[%s] Starting CreateVirtualMachine", vm.ID)
-	err = CreateInstance(ctx, vmc, vm)
-	if err != nil {
-		_ = cloudy.Error(ctx, "[%s] CreateVirtualMachine err: %s", vm.ID, err.Error())
+
+	instanceOptions := &ec2.RunInstancesInput{
+		BlockDeviceMappings: []*ec2.BlockDeviceMapping{
+			{
+				DeviceName: aws.String("/dev/sdh"),
+				Ebs: &ec2.EbsBlockDevice{
+					VolumeSize: aws.Int64(100),
+				},
+			},
+		},
+		ImageId:      aws.String("ami-0ab0629dba5ae551d"), // TODO: make dynamic, this is hardcoded for Ubuntu Server 22.04
+		InstanceType: aws.String(vm.SizeRequest.SpecificSize),  // TODO: use Size.Name or SizeRequest.SpecificSize?
+		// KeyName:      aws.String("my-key-pair"),
+		MaxCount: aws.Int64(1),
+		MinCount: aws.Int64(1),
+		// SecurityGroupIds: []*string{
+		// 	aws.String("sg-1a2b3c4d"),
+		// },
+		TagSpecifications: []*ec2.TagSpecification{
+			{
+				ResourceType: aws.String("instance"),
+				Tags: []*ec2.Tag{
+					{
+						Key:   aws.String("Name"),
+						Value: aws.String(vm.Name),
+					},
+				},
+			},
+		},
+		NetworkInterfaces: []*ec2.InstanceNetworkInterfaceSpecification{
+			{
+				DeviceIndex:        aws.Int64(0), // Primary NIC
+				NetworkInterfaceId: &vm.PrimaryNetwork.ID,
+			},
+		},
 	}
+
+	runResult, err := vmc.Ec2Client.RunInstances(instanceOptions)
+	if err != nil {
+		fmt.Println("Could not create instance: ", err)
+		// TODO: delete created NIC, EBS, etc on create failure
+		return vm, err
+	}
+	// TODO: do we need to store instance ID?
+
+	fmt.Println("Created instance", *runResult.Instances[0].InstanceId)
 	return vm, err
 }
 
 func (vmc *AwsEc2Controller) Delete(ctx context.Context, vm *cloudyvm.VirtualMachineConfiguration) (*cloudyvm.VirtualMachineConfiguration, error) {
-	return DeleteInstance(ctx, vmc, vm)
+	cloudy.Info(ctx, "[%s] Starting Delete", vm.ID)
+	err := ValidateConfiguration(ctx, vm)
+	if err != nil {
+		return vm, err
+	}
+
+	err = TerminateVmInstance(ctx, vmc, vm.Name, true)
+	if err != nil {
+		return vm, err
+	}
+
+	err = vmc.DeleteNIC(ctx, vm)
+	if err != nil {
+		return vm, err
+	}
+
+	cloudy.Info(ctx, "[%s] Deleted VM", vm.ID)
+	return vm, err
 }
 
 func (vmc *AwsEc2Controller) GetLimits(ctx context.Context) ([]*cloudyvm.VirtualMachineLimit, error) {
@@ -234,6 +293,8 @@ func (vmc *AwsEc2Controller) GetLimits(ctx context.Context) ([]*cloudyvm.Virtual
 }
 
 func (vmc *AwsEc2Controller) GetVMSizes(ctx context.Context) (map[string]*cloudyvm.VmSize, error) {
+	// TODO: GetVMSizes
+
 	resp, err := vmc.Ec2Client.DescribeInstanceTypes(&ec2.DescribeInstanceTypesInput{})
 	if err != nil {
 		return nil, err
@@ -242,7 +303,7 @@ func (vmc *AwsEc2Controller) GetVMSizes(ctx context.Context) (map[string]*cloudy
 	rtn := make(map[string]*cloudyvm.VmSize)
 	for {
 		for _, offer := range resp.InstanceTypes {
-			size := &vm.VmSize{}
+			size := &cloudyvm.VmSize{}
 
 			size.Name = *offer.InstanceType
 
@@ -261,4 +322,6 @@ func (vmc *AwsEc2Controller) GetVMSizes(ctx context.Context) (map[string]*cloudy
 	}
 
 	return rtn, nil
+
+	return nil, nil
 }
