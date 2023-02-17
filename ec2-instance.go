@@ -2,8 +2,12 @@ package cloudyaws
 
 import (
 	"context"
+	"crypto/rand"
 	"fmt"
+	"math"
+	"math/big"
 	"strings"
+	"time"
 
 	"github.com/appliedres/cloudy"
 	cloudyvm "github.com/appliedres/cloudy/vm"
@@ -13,7 +17,44 @@ import (
 	"github.com/aws/aws-sdk-go/service/ec2"
 )
 
-// TODO: move vm logic to vm.go, limit this to instance logic only
+// wait for a given VM to reach a specific status
+func waitForStatus(ctx context.Context, vmc *AwsEc2Controller, vmName string, desired_status string) error {
+	// TODO: should timeout be added?
+	timeStart := time.Now()
+	n := 1
+	for {
+		status, err := vmc.Status(ctx, vmName)
+		if err != nil {
+			return err
+		}
+
+		if status.PowerState == desired_status {
+			cloudy.Info(ctx, "[%s] VM status reached '%s' in %.2f seconds", vmName, desired_status, float64(time.Since(timeStart)/time.Millisecond)/1000.0)
+			break
+		}
+
+		cloudy.Info(ctx, "[%s] waiting for instances to transition from '%s' to '%s'", vmName, status.PowerState, desired_status)
+		expBackoff(ctx, n, 32000)
+		n = n + 1
+	}
+
+	return nil
+}
+
+// implements an exponential backoff with time.Sleep() to limit and spread calls out over time
+func expBackoff(ctx context.Context, iteration int, max_ms int) {
+
+	rand_ms, _ := rand.Int(rand.Reader, big.NewInt(1000))
+	rand_ms_i := int(rand_ms.Uint64())
+
+	sq := int(math.Exp2(float64(iteration-2)))
+	base_ms := sq*500
+
+	delay_ms := int(math.Min(float64(base_ms + rand_ms_i), float64(max_ms + rand_ms_i)))
+	
+	// cloudy.Info(ctx, "exponential backoff: %d ms, base_ms: %d, rand_ms: %d, n:%d, sq:%d", delay_ms, base_ms, rand_ms_i, iteration, sq)
+	time.Sleep(time.Duration(delay_ms) * time.Millisecond)
+}
 
 func ValidateConfiguration(ctx context.Context, vm *cloudyvm.VirtualMachineConfiguration) error {
 	// TODO: This is common in AWS/Azure - move to cloudy?
@@ -27,7 +68,7 @@ func ValidateConfiguration(ctx context.Context, vm *cloudyvm.VirtualMachineConfi
 }
 
 func ListAllInstances(ctx context.Context, vmc *AwsEc2Controller) ([]*cloudyvm.VirtualMachineStatus, error) {
-	fmt.Printf("ListALL start")
+	// fmt.Printf("ListALL start")
 
 	var err error
 
@@ -38,13 +79,11 @@ func ListAllInstances(ctx context.Context, vmc *AwsEc2Controller) ([]*cloudyvm.V
 	if err != nil {
 		fmt.Println("DescribeInstances error", err)
 		return nil, err
-	} else {
-		fmt.Println("DescribeInstances success")
 	}
 
 	for _, reservation := range all.Reservations {
 		for _, instance := range reservation.Instances {
-			fmt.Printf("Found instance: %s\n", *instance.InstanceId)
+			// fmt.Printf("Found instance: %s\n", *instance.InstanceId)
 
 			vmStatus := &cloudyvm.VirtualMachineStatus{}
 
@@ -99,7 +138,7 @@ func InstanceStatusByID(ctx context.Context, vmc *AwsEc2Controller, instanceID s
 
 	for _, reservation := range instances.Reservations {
 		for _, instance := range reservation.Instances {
-			fmt.Printf("Found instance: %s\n", *instance.InstanceId)
+			// fmt.Printf("Found instance: %s\n", *instance.InstanceId)
 
 			vmStatus := &cloudyvm.VirtualMachineStatus{}
 
@@ -118,7 +157,7 @@ func InstanceStatusByID(ctx context.Context, vmc *AwsEc2Controller, instanceID s
 
 	if len(returnList) > 1 {
 		result = returnList[0]
-		err = fmt.Errorf("more than one instance found with ID '%s', returning only the first", instanceID)
+		err = cloudy.Error(ctx, "more than one instance found with ID '%s', returning only the first", instanceID)
 	} else if len(returnList) == 1 {
 		result = returnList[0]
 	} else {
@@ -132,7 +171,7 @@ func InstanceStatusByID(ctx context.Context, vmc *AwsEc2Controller, instanceID s
 // returns nil if no matching instance found
 func InstanceStatusByVmName(ctx context.Context, vmc *AwsEc2Controller, vmName string) (*cloudyvm.VirtualMachineStatus, error) {
 	// VM ID is stored as Instance Name
-	
+
 	var err error
 
 	var returnList []*cloudyvm.VirtualMachineStatus
@@ -148,7 +187,7 @@ func InstanceStatusByVmName(ctx context.Context, vmc *AwsEc2Controller, vmName s
 			},
 		},
 	})
-	
+
 	if err != nil {
 		if aerr, ok := err.(awserr.Error); ok {
 			switch aerr.Code() {
@@ -179,19 +218,21 @@ func InstanceStatusByVmName(ctx context.Context, vmc *AwsEc2Controller, vmName s
 			vmStatus.PowerState = *instance.State.Name
 			vmStatus.ID = *instance.InstanceId
 
-			cloudy.Info(ctx, "found instance '%s', status='%s'", vmStatus.ID, vmStatus.PowerState)
 			returnList = append(returnList, vmStatus)
 		}
 	}
 
 	if len(returnList) > 1 {
 		result = returnList[0]
-		err = fmt.Errorf("more than one instance found with name '%s', returning only the first", vmName)
+		err = cloudy.Error(ctx, "more than one instance found with name '%s', returning only the first", vmName)
 	} else if len(returnList) == 1 {
 		result = returnList[0]
 	} else {
 		return nil, err
 	}
+
+	// TODO: nil status
+
 	return result, err
 }
 
@@ -210,7 +251,7 @@ func SetInstanceState(ctx context.Context, vmc *AwsEc2Controller, state cloudyvm
 	} else if state == cloudyvm.VirtualMachineTerminate {
 		err = vmc.Terminate(ctx, vmName, wait)
 	} else {
-		err = fmt.Errorf("invalid state requested: %s", state)
+		err = cloudy.Error(ctx, "invalid state requested: %s", state)
 		return vmStatus, err
 	}
 
@@ -228,7 +269,13 @@ func StartInstance(ctx context.Context, vmc *AwsEc2Controller, vmName string, wa
 	var instStatus *cloudyvm.VirtualMachineStatus
 
 	instStatus, err = vmc.Status(ctx, vmName)
-
+	if instStatus == nil {
+		return cloudy.Error(ctx, "VM not found, could not stop")
+	}
+	if instStatus.PowerState == "running" {
+		cloudy.Info(ctx, "instance already running")
+		return nil
+	}
 	if err != nil {
 		return err
 	}
@@ -240,12 +287,14 @@ func StartInstance(ctx context.Context, vmc *AwsEc2Controller, vmName string, wa
 	}
 
 	_, err = vmc.Ec2Client.StartInstances(input)
-
 	if err != nil {
 		return err
 	}
 
-	// TODO: wait for or verify instance started
+	err = waitForStatus(ctx, vmc, vmName, "running")
+	if err != nil {
+		return err
+	}
 
 	return nil
 }
@@ -254,8 +303,15 @@ func StopInstance(ctx context.Context, vmc *AwsEc2Controller, vmName string, wai
 	var err error
 	var instStatus *cloudyvm.VirtualMachineStatus
 
+	// TODO: VM name not found
 	instStatus, err = vmc.Status(ctx, vmName)
-
+	if instStatus == nil {
+		return cloudy.Error(ctx, "VM not found, could not stop")
+	}
+	if instStatus.PowerState == "stopped" {
+		cloudy.Info(ctx, "instance already stopped")
+		return nil
+	}
 	if err != nil {
 		return err
 	}
@@ -267,19 +323,81 @@ func StopInstance(ctx context.Context, vmc *AwsEc2Controller, vmName string, wai
 	}
 
 	_, err = vmc.Ec2Client.StopInstances(input)
-
 	if err != nil {
 		return err
 	}
 
-	// TODO: wait for or verify instance stopped
+	err = waitForStatus(ctx, vmc, vmName, "stopped")
+	if err != nil {
+		return err
+	}
 
 	return nil
 }
 
-func TerminateVmInstance(ctx context.Context, vmc *AwsEc2Controller, vmName string, wait bool) error {
+// creates an instance with a given vm config
+func CreateInstance(ctx context.Context, vmc *AwsEc2Controller, vm *cloudyvm.VirtualMachineConfiguration) error {
+	cloudy.Info(ctx, "[%s] creating instance", vm.ID)
+
+	instanceOptions := &ec2.RunInstancesInput{
+		BlockDeviceMappings: []*ec2.BlockDeviceMapping{
+			{
+				DeviceName: aws.String("/dev/sdh"),
+				Ebs: &ec2.EbsBlockDevice{
+					VolumeSize: aws.Int64(100),
+				},
+			},
+		},
+		ImageId:      aws.String("ami-0ab0629dba5ae551d"),     // TODO: make dynamic, this is hardcoded for Ubuntu Server 22.04
+		InstanceType: aws.String(vm.SizeRequest.SpecificSize), // TODO: use Size.Name or SizeRequest.SpecificSize?
+		// KeyName:      aws.String("my-key-pair"),
+		MaxCount: aws.Int64(1),
+		MinCount: aws.Int64(1),
+		// SecurityGroupIds: []*string{
+		// 	aws.String("sg-1a2b3c4d"),
+		// },
+		TagSpecifications: []*ec2.TagSpecification{
+			{
+				ResourceType: aws.String("instance"),
+				Tags: []*ec2.Tag{
+					{
+						Key:   aws.String("Name"),
+						Value: aws.String(vm.Name),
+					},
+				},
+			},
+		},
+		NetworkInterfaces: []*ec2.InstanceNetworkInterfaceSpecification{
+			{
+				DeviceIndex:        aws.Int64(0), // Primary NIC
+				NetworkInterfaceId: &vm.PrimaryNetwork.ID,
+			},
+		},
+		KeyName: aws.String("manualTest"),
+	}
+
+	runResult, err := vmc.Ec2Client.RunInstances(instanceOptions)
+	if err != nil {
+		fmt.Println("Could not create instance: ", err)
+		// TODO: delete created NIC, EBS, etc on create failure
+		return err
+	}
+	// TODO: do we need to store instance ID?
+
+	err = waitForStatus(ctx, vmc, vm.Name, "running")
+	if err != nil {
+		return err
+	}
+
+	fmt.Println("Created instance", *runResult.Instances[0].InstanceId)
+
+	return nil
+}
+
+// Terminates an instance with a given name
+func TerminateInstance(ctx context.Context, vmc *AwsEc2Controller, vmName string, wait bool) error {
 	// TODO: switch to using instance ID as it is properly unique
-	cloudy.Info(ctx, "Terminating Instance with name '%s'", vmName)  
+	cloudy.Info(ctx, "Terminating Instance with name '%s'", vmName)
 	var err error
 	var vmStatus *cloudyvm.VirtualMachineStatus
 
@@ -303,15 +421,10 @@ func TerminateVmInstance(ctx context.Context, vmc *AwsEc2Controller, vmName stri
 		return err
 	}
 
-	// TODO: wait for or verify instance terminated
+	err = waitForStatus(ctx, vmc, vmName, "terminated")
+	if err != nil {
+		return err
+	}
 
 	return nil
-}
-
-func CreateInstance(ctx context.Context, vmc *AwsEc2Controller, vm *cloudyvm.VirtualMachineConfiguration) error {
-	return nil
-}
-
-func DeleteInstance(ctx context.Context, vmc *AwsEc2Controller, vm *cloudyvm.VirtualMachineConfiguration) (*cloudyvm.VirtualMachineConfiguration, error) {
-	return nil, nil
 }

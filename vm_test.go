@@ -5,7 +5,6 @@ import (
 	"os"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/appliedres/cloudy"
 	"github.com/appliedres/cloudy/testutil"
@@ -14,8 +13,10 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+var vmID string = "uvm-gotest"
+
 func TestListAll(t *testing.T) {
-	fmt.Println("Testing ListAllInstances")
+	fmt.Println("TEST: ListAllInstances")
 
 	ctx := cloudy.StartContext()
 
@@ -35,90 +36,14 @@ func TestListAll(t *testing.T) {
 	}
 }
 
-func TestStatus(t *testing.T) {
-	name := "manual-name"
-	fmt.Printf("Testing TestStatus\nName=%s\n", name)
+func TestCreateVM(t *testing.T) {
+	fmt.Printf("TEST: Create VM with name = %s\n", vmID)
 
 	ctx := cloudy.StartContext()
 
 	_ = testutil.LoadEnv("test.env")
 
-	vmc, err := NewAwsEc2Controller(ctx, &AwsEc2ControllerConfig{})
-
-	assert.Nil(t, err)
-
-	status, err := vmc.Status(ctx, name)
-	assert.Nil(t, err)
-
-	fmt.Printf("Instance status for name '%s':\n%v", name, status)
-}
-
-
-func TestStop(t *testing.T) {
-	name := "manual-name"
-	fmt.Printf("Testing TestListWithName\nName=%s\n", name)
-
-	ctx := cloudy.StartContext()
-
-	_ = testutil.LoadEnv("test.env")
-
-	vmc, err := NewAwsEc2Controller(ctx, &AwsEc2ControllerConfig{})
-
-	assert.Nil(t, err)
-
-	err = vmc.Stop(ctx, name, false)
-	assert.Nil(t, err)
-
-	// fmt.Printf("Instance status for name '%s':\n%v", name, status)
-}
-
-func TestStart(t *testing.T) {
-	name := "manual-name"
-	fmt.Printf("Testing TestListWithName\nName=%s\n", name)
-
-	ctx := cloudy.StartContext()
-
-	_ = testutil.LoadEnv("test.env")
-
-	vmc, err := NewAwsEc2Controller(ctx, &AwsEc2ControllerConfig{})
-
-	assert.Nil(t, err)
-
-	err = vmc.Start(ctx, name, false)
-	assert.Nil(t, err)
-
-	// fmt.Printf("Instance status for name '%s':\n%v", name, status)
-}
-
-func TestTerminate(t *testing.T) {
-	name := "manual-name"
-	fmt.Printf("Testing TestTerminate\nvm name=%s\n", name)
-
-	ctx := cloudy.StartContext()
-
-	_ = testutil.LoadEnv("test.env")
-
-	vmc, err := NewAwsEc2Controller(ctx, &AwsEc2ControllerConfig{})
-
-	assert.Nil(t, err)
-
-	err = vmc.Terminate(ctx, name, false)
-	assert.Nil(t, err)
-
-	// fmt.Printf("Instance status for name '%s':\n%v", name, status)
-}
-
-
-func TestCreateAndDeleteVM(t *testing.T) {
-	time_ms := time.Now().UnixNano()/1000000
-	vmID := fmt.Sprintf("uvm-gotest_T%d", time_ms)
-	fmt.Printf("Testing TestCreateVM with VM name = %s\n", vmID)
-
-	ctx := cloudy.StartContext()
-
-	_ = testutil.LoadEnv("test.env")
-
-	subnets := strings.Split(os.Getenv("SUBNETS"), ",") // TODO: use cloudy environment
+	subnets := strings.Split(os.Getenv("SUBNETS"), ",")
 
 	vmc, err := NewAwsEc2Controller(ctx, &AwsEc2ControllerConfig{
 		AvailableSubnets:         subnets,
@@ -127,7 +52,7 @@ func TestCreateAndDeleteVM(t *testing.T) {
 
 	vmConfig := &cloudyvm.VirtualMachineConfiguration{
 		ID:   vmID,
-		Name: "testName-" + vmID,
+		Name: vmID,
 		Size: &cloudyvm.VmSize{
 			Name: "t2.micro",
 		},
@@ -137,11 +62,6 @@ func TestCreateAndDeleteVM(t *testing.T) {
 		OSType:       "linux",
 		Image:        "canonical::ubuntuserver::19.04",
 		ImageVersion: "19.04.202001220",
-		Credientials: cloudyvm.Credientials{
-			AdminUser:     "salt",
-			AdminPassword: "TestPassword12#$",
-			// SSHKey:        sshPublicKey,
-		},
 	}
 
 	_, err = vmc.Create(ctx, vmConfig)
@@ -150,12 +70,87 @@ func TestCreateAndDeleteVM(t *testing.T) {
 	status, err := InstanceStatusByVmName(ctx, vmc, vmConfig.Name)
 	assert.Nil(t, err)
 	assert.NotNil(t, status)
+}
+
+func TestStop(t *testing.T) {
+	fmt.Printf("TEST: Stop VM name='%s'\n", vmID)
+
+	ctx := cloudy.StartContext()
+
+	_ = testutil.LoadEnv("test.env")
+
+	vmc, err := NewAwsEc2Controller(ctx, &AwsEc2ControllerConfig{})
+
+	assert.Nil(t, err)
+
+	err = vmc.Stop(ctx, vmID, false)
+	assert.Nil(t, err)
+}
+
+func TestStatus(t *testing.T) {
+	fmt.Printf("TEST: Status for VM name=%s\n", vmID)
+
+	ctx := cloudy.StartContext()
+
+	_ = testutil.LoadEnv("test.env")
+
+	vmc, err := NewAwsEc2Controller(ctx, &AwsEc2ControllerConfig{})
+
+	assert.Nil(t, err)
+
+	status, err := vmc.Status(ctx, vmID)
+	assert.Nil(t, err)
+
+	fmt.Printf("Instance status for name '%s': %v\n", vmID, status.PowerState)
+}
+
+func TestStart(t *testing.T) {
+	fmt.Printf("TEST: Start VM name='%s'\n", vmID)
+
+	ctx := cloudy.StartContext()
+
+	_ = testutil.LoadEnv("test.env")
+
+	vmc, err := NewAwsEc2Controller(ctx, &AwsEc2ControllerConfig{})
+
+	assert.Nil(t, err)
+
+	err = vmc.Start(ctx, vmID, false)
+	assert.Nil(t, err)
+}
+
+func TestDeleteVM(t *testing.T) {
+	fmt.Printf("TEST: Delete VM with name = %s\n", vmID)
+
+	ctx := cloudy.StartContext()
+
+	_ = testutil.LoadEnv("test.env")
+
+	subnets := strings.Split(os.Getenv("SUBNETS"), ",")
+
+	vmc, err := NewAwsEc2Controller(ctx, &AwsEc2ControllerConfig{
+		AvailableSubnets:         subnets,
+	})
+	assert.Nil(t, err)
+
+	vmConfig := &cloudyvm.VirtualMachineConfiguration{
+		ID:   vmID,
+		Name: vmID,
+		Size: &cloudyvm.VmSize{
+			Name: "t2.micro",
+		},
+		SizeRequest: &cloudyvm.VmSizeRequest{
+			SpecificSize: "t2.micro",
+		},
+		OSType:       "linux",
+		Image:        "canonical::ubuntuserver::19.04",
+		ImageVersion: "19.04.202001220",
+	}
 
 	_, err = vmc.Delete(ctx, vmConfig)
 	assert.Nil(t, err)
 
-	status, err = InstanceStatusByVmName(ctx, vmc, vmConfig.Name)
+	status, err := InstanceStatusByVmName(ctx, vmc, vmConfig.Name)
 	assert.Nil(t, err)
-	// TODO: status could be terminated
-	assert.Equal(t, status.PowerState, "shutting-down")
+	assert.Equal(t, status.PowerState, "terminated")
 }

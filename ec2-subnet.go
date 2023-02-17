@@ -13,22 +13,23 @@ import (
 
 // Returns the first subnet found with IP availability out of availableSubnets
 func (vmc *AwsEc2Controller) FindBestSubnet(ctx context.Context, availableSubnets []string) (string, error) {
-	cloudy.Info(ctx, "Starting FindBestSubnet")
-	
+	// cloudy.Info(ctx, "Starting FindBestSubnet")
+
 	if len(availableSubnets) == 0 {
 		return "", cloudy.Error(ctx, "No subnets available")
 	}
-	
+
 	for _, subnetID := range availableSubnets {
 		available, err := vmc.GetAvailableIPs(ctx, subnetID)
 
 		if err != nil {
 			return "", err
 		}
-		cloudy.Info(ctx, "Available IPs for subnetID %s: %d", subnetID, available)
+		// cloudy.Info(ctx, "Available IPs for subnetID %s: %d", subnetID, available)
 
 		if available > 0 {
 			cloudy.Info(ctx, "Selected subnet with availability: ID='%s'", subnetID)
+
 			return subnetID, nil
 		}
 	}
@@ -40,6 +41,8 @@ func (vmc *AwsEc2Controller) FindBestSubnet(ctx context.Context, availableSubnet
 
 // Retrieves the number of available IPs in a subnet
 func (vmc *AwsEc2Controller) GetAvailableIPs(ctx context.Context, subnetID string) (int, error) {
+	// cloudy.Info(ctx, "Starting GetAvailableIPs for subnetID [%s]", subnetID)
+
 	// TODO: validate subnetID
 
 	input := &ec2.DescribeSubnetsInput{
@@ -52,13 +55,13 @@ func (vmc *AwsEc2Controller) GetAvailableIPs(ctx context.Context, subnetID strin
 			},
 		},
 	}
-	
+
 	foundSubnets, err := vmc.Ec2Client.DescribeSubnets(input)
 	if err != nil {
 		if aerr, ok := err.(awserr.Error); ok {
 			switch aerr.Code() {
 			default:
-				fmt.Println(aerr.Error())
+				fmt.Println("AWS ERROR:", aerr.Error())
 			}
 		} else {
 			// Print the error, cast err to awserr.Error to get the Code and
@@ -69,20 +72,21 @@ func (vmc *AwsEc2Controller) GetAvailableIPs(ctx context.Context, subnetID strin
 	}
 
 	switch l := len(foundSubnets.Subnets); {
-	case l > 1: return 0, fmt.Errorf("multiple subnets (%d) found with ID '%s'", l, subnetID)
-	case l == 0: return 0, fmt.Errorf("could not find subnet with ID '%s'", subnetID)
-	case l != 1: return 0, fmt.Errorf("invalid number of subnets (%d) found for ID '%s'", l, subnetID)
+	case l > 1: return 0, cloudy.Error(ctx, "multiple subnets (%d) found with ID '%s'", l, subnetID)
+	case l == 0: return 0, cloudy.Error(ctx, "could not find subnet with ID '%s'", subnetID)
+	case l != 1: return 0, cloudy.Error(ctx, "invalid number of subnets (%d) found for ID '%s'", l, subnetID)
 	default:
 	}
 
 	subnet := foundSubnets.Subnets[0]
-	
+
 	availableIPs64 := *subnet.AvailableIpAddressCount
 
 	availableIPs := int(availableIPs64)
 	if int64(availableIPs) != availableIPs64 {
-		return availableIPs, fmt.Errorf("error casting int64 to int")
-	} 
+		return availableIPs, cloudy.Error(ctx, "error casting int64 to int")
+	}
 
+	cloudy.Info(ctx, "Found %d IPs for subnetID ['%s']", availableIPs, subnetID)
 	return availableIPs, err
 }

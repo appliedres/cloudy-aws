@@ -2,7 +2,6 @@ package cloudyaws
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/appliedres/cloudy"
 	cloudyvm "github.com/appliedres/cloudy/vm"
@@ -108,6 +107,8 @@ func NewAwsEc2Controller(ctx context.Context, config *AwsEc2ControllerConfig) (*
 		SharedConfigState: session.SharedConfigEnable,
 	}))
 
+	// TODO: add AWS permissions check before making requests
+
 	quotas := servicequotas.New(sess)
 	ec2client := ec2.New(sess)
 
@@ -145,35 +146,40 @@ func (vmc *AwsEc2Controller) Stop(ctx context.Context, vmName string, wait bool)
 }
 
 func (vmc *AwsEc2Controller) Terminate(ctx context.Context, vmName string, wait bool) error {
-	return TerminateVmInstance(ctx, vmc, vmName, wait)
+	return TerminateInstance(ctx, vmc, vmName, wait)
 }
 
 func (vmc *AwsEc2Controller) Create(ctx context.Context, vm *cloudyvm.VirtualMachineConfiguration) (*cloudyvm.VirtualMachineConfiguration, error) {
-	cloudy.Info(ctx, "[%s] Starting Create", vm.ID)
+	// TODO: configure credentials on instance from vm config
+
+	cloudy.Info(ctx, "[%s] Starting Create VM", vm.ID)
 	err := ValidateConfiguration(ctx, vm)
 	if err != nil {
 		return vm, err
 	}
 
+	// TODO: check if this VM exists first
+	
+
 	// Check if NIC already exists
-	cloudy.Info(ctx, "[%s] Starting GetNIC", vm.ID)
+	cloudy.Info(ctx, "[%s] Searching for existing NIC", vm.ID)
 	network, err := vmc.GetVmNic(ctx, vm)
 	if err != nil {
-		cloudy.Info(ctx, "[%s] Error looking for NIC: %s", vm.ID, err.Error())
+		cloudy.Info(ctx, "[%s] Error looking for existing NIC: %s", vm.ID, err.Error())
 	}
 
 	if network != nil {
-		cloudy.Info(ctx, "[%s] Using existing NIC: %s", vm.ID, network.ID)
+		cloudy.Info(ctx, "[%s] Found existing NIC: %s", vm.ID, network.ID)
 		vm.PrimaryNetwork = network
 	} else {
 		// No existing NIC, create one
-		cloudy.Info(ctx, "[%s] No NIC found, creating one", vm.ID)
+		cloudy.Info(ctx, "[%s] No existing NIC found, creating one", vm.ID)
 		subnetId, err := vmc.FindBestSubnet(ctx, vmc.Config.AvailableSubnets)
 		if err != nil {
 			return vm, err
 		}
 		if subnetId == "" {
-			return vm, fmt.Errorf("[%s] no available subnets", vm.ID)
+			return vm, cloudy.Error(ctx, "[%s] no available subnets", vm.ID)
 		}
 
 		// Check / Create the Network Interface
@@ -183,53 +189,8 @@ func (vmc *AwsEc2Controller) Create(ctx context.Context, vm *cloudyvm.VirtualMac
 		}
 	}
 
-	cloudy.Info(ctx, "[%s] Starting CreateVirtualMachine", vm.ID)
-
-	instanceOptions := &ec2.RunInstancesInput{
-		BlockDeviceMappings: []*ec2.BlockDeviceMapping{
-			{
-				DeviceName: aws.String("/dev/sdh"),
-				Ebs: &ec2.EbsBlockDevice{
-					VolumeSize: aws.Int64(100),
-				},
-			},
-		},
-		ImageId:      aws.String("ami-0ab0629dba5ae551d"), // TODO: make dynamic, this is hardcoded for Ubuntu Server 22.04
-		InstanceType: aws.String(vm.SizeRequest.SpecificSize),  // TODO: use Size.Name or SizeRequest.SpecificSize?
-		// KeyName:      aws.String("my-key-pair"),
-		MaxCount: aws.Int64(1),
-		MinCount: aws.Int64(1),
-		// SecurityGroupIds: []*string{
-		// 	aws.String("sg-1a2b3c4d"),
-		// },
-		TagSpecifications: []*ec2.TagSpecification{
-			{
-				ResourceType: aws.String("instance"),
-				Tags: []*ec2.Tag{
-					{
-						Key:   aws.String("Name"),
-						Value: aws.String(vm.Name),
-					},
-				},
-			},
-		},
-		NetworkInterfaces: []*ec2.InstanceNetworkInterfaceSpecification{
-			{
-				DeviceIndex:        aws.Int64(0), // Primary NIC
-				NetworkInterfaceId: &vm.PrimaryNetwork.ID,
-			},
-		},
-	}
-
-	runResult, err := vmc.Ec2Client.RunInstances(instanceOptions)
-	if err != nil {
-		fmt.Println("Could not create instance: ", err)
-		// TODO: delete created NIC, EBS, etc on create failure
-		return vm, err
-	}
-	// TODO: do we need to store instance ID?
-
-	fmt.Println("Created instance", *runResult.Instances[0].InstanceId)
+	err = CreateInstance(ctx, vmc, vm)
+	
 	return vm, err
 }
 
@@ -240,7 +201,7 @@ func (vmc *AwsEc2Controller) Delete(ctx context.Context, vm *cloudyvm.VirtualMac
 		return vm, err
 	}
 
-	err = TerminateVmInstance(ctx, vmc, vm.Name, true)
+	err = TerminateInstance(ctx, vmc, vm.Name, true)
 	if err != nil {
 		return vm, err
 	}
@@ -250,7 +211,7 @@ func (vmc *AwsEc2Controller) Delete(ctx context.Context, vm *cloudyvm.VirtualMac
 		return vm, err
 	}
 
-	cloudy.Info(ctx, "[%s] Deleted VM", vm.ID)
+	cloudy.Info(ctx, "[%s] Delete VM Complete", vm.ID)
 	return vm, err
 }
 
@@ -320,8 +281,5 @@ func (vmc *AwsEc2Controller) GetVMSizes(ctx context.Context) (map[string]*cloudy
 		}
 
 	}
-
 	return rtn, nil
-
-	return nil, nil
 }
