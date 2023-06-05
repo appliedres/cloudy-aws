@@ -24,7 +24,6 @@ func TestSecrets(t *testing.T) {
 		Region:       cloudy.ForceEnv("AWS_REGION", ""),
 		AccessKeyID:     cloudy.ForceEnv("AWS_ACCESS_KEY_ID", ""),
 		SecretAccessKey:     cloudy.ForceEnv("AWS_SECRET_ACCESS_KEY", ""),
-		SessionToken: cloudy.ForceEnv("AWS_SESSION_TOKEN", ""),
 	}
 
 	sm, err := NewSecretManager(ctx, creds)

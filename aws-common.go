@@ -1,3 +1,3 @@
 package cloudyaws
 
-const AWS = "azure"
+const AWS = "aws"

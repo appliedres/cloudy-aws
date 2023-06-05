@@ -12,6 +12,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/secretsmanager"
+	"github.com/aws/aws-sdk-go/aws/credentials"
 )
 
 const AwsSecretManagerID = "aws"
@@ -46,27 +47,51 @@ func (c *AwsSecretManagerFactory) FromEnv(env *cloudy.Environment) (interface{},
 
 type AwsSecretManager struct {
 	AwsCredentials
+	Client		*secretsmanager.SecretsManager
 }
 
 
 func NewSecretManager(ctx context.Context, creds AwsCredentials) (*AwsSecretManager, error) {
 	cloudy.Info(ctx, "AWS SecretManager: NewSecretManager")
-	return &AwsSecretManager{
+
+	sm := &AwsSecretManager{
 		AwsCredentials: creds,
-	}, nil
+	}
+
+	err := sm.Configure(ctx)
+	return sm, err
+
+}
+
+func (a *AwsSecretManager) Configure(ctx context.Context) error {
+    sess, err := session.NewSessionWithOptions(session.Options{
+        Config: aws.Config{
+			Credentials: credentials.NewStaticCredentials(
+				a.AwsCredentials.AccessKeyID,
+				a.AwsCredentials.SecretAccessKey,
+				"",
+			),
+			Region:      aws.String(a.AwsCredentials.Region),
+        },
+    })
+	if err != nil {
+		return err
+	}
+
+	client := secretsmanager.New(sess)
+
+	a.Client = client
+	return nil
 }
 
 func (a *AwsSecretManager) ListAll(ctx context.Context) ([]string, error) {	
 	cloudy.Info(ctx, "AWS SecretManager: ListAll")
 
-	//Create a Secrets Manager client
-	svc := secretsmanager.New(session.New(), aws.NewConfig().WithRegion(a.AwsCredentials.Region))
-
 	// Set the input parameters for listing secrets
 	input := &secretsmanager.ListSecretsInput{}
 
 	// Call the ListSecrets API
-	result, err := svc.ListSecrets(input)
+	result, err := a.Client.ListSecrets(input)
 	if err != nil {
 		// Handle errors
 		if aerr, ok := err.(awserr.Error); ok {
@@ -145,9 +170,8 @@ func (a *AwsSecretManager) GetSecretBinary(ctx context.Context, key string) ([]b
 
 func (a *AwsSecretManager) DeleteSecret(ctx context.Context, key string) error {
 	cloudy.Info(ctx, "deleting secret with key [%s] in region [%s]", key, a.AwsCredentials.Region)
-	svc := secretsmanager.New(session.New(), aws.NewConfig().WithRegion(a.AwsCredentials.Region))
 
-	_, err := svc.DeleteSecret(&secretsmanager.DeleteSecretInput{
+	_, err := a.Client.DeleteSecret(&secretsmanager.DeleteSecretInput{
 		SecretId: aws.String(key),
 		ForceDeleteWithoutRecovery: aws.Bool(true),
 
@@ -158,16 +182,13 @@ func (a *AwsSecretManager) DeleteSecret(ctx context.Context, key string) error {
 
 func (a *AwsSecretManager) putSecretRaw(ctx context.Context, key string, secret string) error {
 	cloudy.Info(ctx, "putting raw secret with key [%s] in region [%s]", key, a.AwsCredentials.Region)
-
-	//Create a Secrets Manager client
-	svc := secretsmanager.New(session.New(), aws.NewConfig().WithRegion(a.AwsCredentials.Region))
 	
 	input := &secretsmanager.PutSecretValueInput{
 		SecretId:     aws.String(key),
 		SecretString: aws.String(secret),
 	}
 
-	_, err := svc.PutSecretValue(input)
+	_, err := a.Client.PutSecretValue(input)
     if err != nil {
         // Handle errors using awserr.
         if aerr, ok := err.(awserr.Error); ok {
@@ -201,15 +222,12 @@ func (a *AwsSecretManager) putSecretRaw(ctx context.Context, key string, secret 
 func (a *AwsSecretManager) putSecretBinary(ctx context.Context, key string, secret []byte) error {
 	cloudy.Info(ctx, "putting raw secret with key [%s] in region [%s]", key, a.AwsCredentials.Region)
 
-	//Create a Secrets Manager client
-	svc := secretsmanager.New(session.New(), aws.NewConfig().WithRegion(a.AwsCredentials.Region))
-
 	input := &secretsmanager.PutSecretValueInput{
 		SecretId:     aws.String(key),
 		SecretBinary: secret,
 	}
 
-	_, err := svc.PutSecretValue(input)
+	_, err := a.Client.PutSecretValue(input)
     if err != nil {
         // Handle errors using awserr.
         if aerr, ok := err.(awserr.Error); ok {
@@ -243,15 +261,12 @@ func (a *AwsSecretManager) putSecretBinary(ctx context.Context, key string, secr
 func (a *AwsSecretManager) createSecretRaw(ctx context.Context, key string, secret string) error {
 	cloudy.Info(ctx, "creating raw secret with key [%s] in region [%s]", key, a.AwsCredentials.Region)
 	
-	//Create a Secrets Manager client
-	svc := secretsmanager.New(session.New(), aws.NewConfig().WithRegion(a.AwsCredentials.Region))
-
 	input := &secretsmanager.CreateSecretInput{
 		Name:     aws.String(key),
 		SecretString: aws.String(secret),
 	}
 
-	_, err := svc.CreateSecret(input)
+	_, err := a.Client.CreateSecret(input)
     if err != nil {
         // Handle errors using awserr.
         if aerr, ok := err.(awserr.Error); ok {
@@ -285,15 +300,12 @@ func (a *AwsSecretManager) createSecretRaw(ctx context.Context, key string, secr
 func (a *AwsSecretManager) createSecretBinary(ctx context.Context, key string, secret []byte) error {
 	cloudy.Info(ctx, "creating raw secret with key [%s] in region [%s]", key, a.AwsCredentials.Region)
 
-	//Create a Secrets Manager client
-	svc := secretsmanager.New(session.New(), aws.NewConfig().WithRegion(a.AwsCredentials.Region))
-
 	input := &secretsmanager.CreateSecretInput{
 		Name:     aws.String(key),
 		SecretBinary: secret,
 	}
 
-	_, err := svc.CreateSecret(input)
+	_, err := a.Client.CreateSecret(input)
     if err != nil {
         // Handle errors using awserr.
         if aerr, ok := err.(awserr.Error); ok {
@@ -325,18 +337,16 @@ func (a *AwsSecretManager) createSecretBinary(ctx context.Context, key string, s
 }
 
 func (a *AwsSecretManager) getRawSecret(ctx context.Context, key string) (string, []byte, error) {
-	//Create a Secrets Manager client
-	svc := secretsmanager.New(session.New(), aws.NewConfig().WithRegion(a.AwsCredentials.Region))
+	cloudy.Info(ctx, "getRawSecret")
 
 	input := &secretsmanager.GetSecretValueInput{
 		SecretId:     aws.String(key),
-		VersionStage: aws.String("AWSCURRENT"), // VersionStage defaults to AWSCURRENT if unspecified
 	}
 
 	// In this sample we only handle the specific exceptions for the 'GetSecretValue' API.
 	// See https://docs.aws.amazon.com/secretsmanager/latest/apireference/API_GetSecretValue.html
 
-	result, err := svc.GetSecretValue(input)
+	result, err := a.Client.GetSecretValue(input)
 	if err != nil {
 		if aerr, ok := err.(awserr.Error); ok {
 			switch aerr.Code() {

@@ -20,10 +20,15 @@ func TestListAll(t *testing.T) {
 
 	ctx := cloudy.StartContext()
 
-	_ = testutil.LoadEnv("test.env")
+	_ = testutil.LoadEnv("../arkloud-conf/arkloud.env")
 
-	vmc, err := NewAwsEc2Controller(ctx, &AwsEc2ControllerConfig{})
-
+	vmc, err := NewAwsEc2Controller(ctx, &AwsEc2ControllerConfig{
+		AwsCredentials: 		AwsCredentials{
+			Region:       cloudy.ForceEnv("AWS_REGION", ""),
+			AccessKeyID:     cloudy.ForceEnv("AWS_ACCESS_KEY_ID", ""),
+			SecretAccessKey:     cloudy.ForceEnv("AWS_SECRET_ACCESS_KEY", ""),
+		},
+	})
 	assert.Nil(t, err)
 
 	all, err := vmc.ListAll(ctx)
@@ -41,12 +46,17 @@ func TestCreateVM(t *testing.T) {
 
 	ctx := cloudy.StartContext()
 
-	_ = testutil.LoadEnv("test.env")
+	_ = testutil.LoadEnv("../arkloud-conf/arkloud.env")
 
-	subnets := strings.Split(os.Getenv("SUBNETS"), ",")
+	subnets := strings.Split(cloudy.ForceEnv("VMC_SUBNETS", ""), ",")
 
 	vmc, err := NewAwsEc2Controller(ctx, &AwsEc2ControllerConfig{
 		AvailableSubnets:         subnets,
+		AwsCredentials: 		AwsCredentials{
+			Region:       cloudy.ForceEnv("AWS_REGION", ""),
+			AccessKeyID:     cloudy.ForceEnv("AWS_ACCESS_KEY_ID", ""),
+			SecretAccessKey:     cloudy.ForceEnv("AWS_SECRET_ACCESS_KEY", ""),
+		},
 	})
 	assert.Nil(t, err)
 
@@ -77,10 +87,15 @@ func TestStop(t *testing.T) {
 
 	ctx := cloudy.StartContext()
 
-	_ = testutil.LoadEnv("test.env")
+	_ = testutil.LoadEnv("../arkloud-conf/arkloud.env")
 
-	vmc, err := NewAwsEc2Controller(ctx, &AwsEc2ControllerConfig{})
-
+	vmc, err := NewAwsEc2Controller(ctx, &AwsEc2ControllerConfig{
+		AwsCredentials: 		AwsCredentials{
+			Region:       cloudy.ForceEnv("AWS_REGION", ""),
+			AccessKeyID:     cloudy.ForceEnv("AWS_ACCESS_KEY_ID", ""),
+			SecretAccessKey:     cloudy.ForceEnv("AWS_SECRET_ACCESS_KEY", ""),
+		},
+	})
 	assert.Nil(t, err)
 
 	err = vmc.Stop(ctx, vmID, false)
@@ -92,10 +107,15 @@ func TestStatus(t *testing.T) {
 
 	ctx := cloudy.StartContext()
 
-	_ = testutil.LoadEnv("test.env")
+	_ = testutil.LoadEnv("../arkloud-conf/arkloud.env")
 
-	vmc, err := NewAwsEc2Controller(ctx, &AwsEc2ControllerConfig{})
-
+	vmc, err := NewAwsEc2Controller(ctx, &AwsEc2ControllerConfig{
+		AwsCredentials: 		AwsCredentials{
+			Region:       cloudy.ForceEnv("AWS_REGION", ""),
+			AccessKeyID:     cloudy.ForceEnv("AWS_ACCESS_KEY_ID", ""),
+			SecretAccessKey:     cloudy.ForceEnv("AWS_SECRET_ACCESS_KEY", ""),
+		},
+	})
 	assert.Nil(t, err)
 
 	status, err := vmc.Status(ctx, vmID)
@@ -109,10 +129,15 @@ func TestStart(t *testing.T) {
 
 	ctx := cloudy.StartContext()
 
-	_ = testutil.LoadEnv("test.env")
+	_ = testutil.LoadEnv("../arkloud-conf/arkloud.env")
 
-	vmc, err := NewAwsEc2Controller(ctx, &AwsEc2ControllerConfig{})
-
+	vmc, err := NewAwsEc2Controller(ctx, &AwsEc2ControllerConfig{
+		AwsCredentials: 		AwsCredentials{
+			Region:       cloudy.ForceEnv("AWS_REGION", ""),
+			AccessKeyID:     cloudy.ForceEnv("AWS_ACCESS_KEY_ID", ""),
+			SecretAccessKey:     cloudy.ForceEnv("AWS_SECRET_ACCESS_KEY", ""),
+		},
+	})
 	assert.Nil(t, err)
 
 	err = vmc.Start(ctx, vmID, false)
@@ -124,12 +149,17 @@ func TestDeleteVM(t *testing.T) {
 
 	ctx := cloudy.StartContext()
 
-	_ = testutil.LoadEnv("test.env")
+	_ = testutil.LoadEnv("../arkloud-conf/arkloud.env")
 
 	subnets := strings.Split(os.Getenv("SUBNETS"), ",")
 
 	vmc, err := NewAwsEc2Controller(ctx, &AwsEc2ControllerConfig{
 		AvailableSubnets:         subnets,
+		AwsCredentials: 		AwsCredentials{
+			Region:       cloudy.ForceEnv("AWS_REGION", ""),
+			AccessKeyID:     cloudy.ForceEnv("AWS_ACCESS_KEY_ID", ""),
+			SecretAccessKey:     cloudy.ForceEnv("AWS_SECRET_ACCESS_KEY", ""),
+		},
 	})
 	assert.Nil(t, err)
 
@@ -154,3 +184,54 @@ func TestDeleteVM(t *testing.T) {
 	assert.Nil(t, err)
 	assert.Equal(t, status.PowerState, "terminated")
 }
+
+func TestGetVMSizes(t *testing.T) {
+	fmt.Printf("TEST: GetVMSizes")
+
+	ctx := cloudy.StartContext()
+
+	_ = testutil.LoadEnv("../arkloud-conf/arkloud.env")
+
+	subnets := strings.Split(os.Getenv("SUBNETS"), ",")
+
+	vmc, err := NewAwsEc2Controller(ctx, &AwsEc2ControllerConfig{
+		AvailableSubnets:         subnets,
+		AwsCredentials: 		AwsCredentials{
+			Region:       cloudy.ForceEnv("AWS_REGION", ""),
+			AccessKeyID:     cloudy.ForceEnv("AWS_ACCESS_KEY_ID", ""),
+			SecretAccessKey:     cloudy.ForceEnv("AWS_SECRET_ACCESS_KEY", ""),
+		},
+	})
+	assert.Nil(t, err)
+
+	sizes, err := vmc.GetVMSizes(ctx)
+	assert.Nil(t, err)
+	assert.NotNil(t, sizes)
+
+}
+
+func TestGetLimits(t *testing.T) {
+	fmt.Printf("TEST: GetLimits")
+
+	ctx := cloudy.StartContext()
+
+	_ = testutil.LoadEnv("../arkloud-conf/arkloud.env")
+
+	subnets := strings.Split(os.Getenv("SUBNETS"), ",")
+
+	vmc, err := NewAwsEc2Controller(ctx, &AwsEc2ControllerConfig{
+		AvailableSubnets:         subnets,
+		AwsCredentials: 		AwsCredentials{
+			Region:       cloudy.ForceEnv("AWS_REGION", ""),
+			AccessKeyID:     cloudy.ForceEnv("AWS_ACCESS_KEY_ID", ""),
+			SecretAccessKey:     cloudy.ForceEnv("AWS_SECRET_ACCESS_KEY", ""),
+		},
+	})
+	assert.Nil(t, err)
+
+	limits, err := vmc.GetLimits(ctx)
+	assert.Nil(t, err)
+	assert.NotNil(t, limits)
+
+}
+
