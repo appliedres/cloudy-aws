@@ -2,12 +2,11 @@ module github.com/appliedres/cloudy-aws
 
 go 1.19
 
-replace github.com/appliedres/cloudy => ../cloudy
-
 require (
-	github.com/appliedres/cloudy v0.0.7
+	github.com/appliedres/cloudy v0.0.12
 	github.com/aws/aws-sdk-go v1.44.20
 	github.com/stretchr/testify v1.8.2
+	gopkg.in/gomail.v2 v2.0.0-20160411212932-81ebce5c23df
 )
 
 require github.com/google/go-cmp v0.5.8 // indirect
@@ -38,6 +37,5 @@ require (
 	github.com/rogpeppe/go-internal v1.10.0 // indirect
 	go.mongodb.org/mongo-driver v1.11.4 // indirect
 	gopkg.in/alexcesaro/quotedprintable.v3 v3.0.0-20150716171945-2caba252f4dc // indirect
-	gopkg.in/gomail.v2 v2.0.0-20160411212932-81ebce5c23df // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
