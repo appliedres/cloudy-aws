@@ -2,35 +2,50 @@ package cloudyaws
 
 import (
 	"context"
-	// "fmt"
+	"fmt"
 
-	// "github.com/appliedres/cloudy/logging"
+	"github.com/appliedres/cloudy/logging"
 	"github.com/appliedres/cloudy/models"
-	// "github.com/pkg/errors"
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
+	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
+	"github.com/pkg/errors"
 )
 
-func (vmm *AwsVirtualMachineManager) GetById(ctx context.Context, id string) (*models.VirtualMachine, error) {
-	// 	log := logging.GetLogger(ctx)
+func (vmm *AwsVirtualMachineManager) GetByName(ctx context.Context, name string) (*models.VirtualMachine, error) {
+	log := logging.GetLogger(ctx)
 
-	// 	resp, err := vmm.vmClient.Get(ctx, vmm.credentials.ResourceGroup, id, &armcompute.VirtualMachinesClientGetOptions{
-	// 		Expand: nil,
-	// 	})
+	input := &ec2.DescribeInstancesInput{
+		Filters: []types.Filter{
+			{
+				Name:   aws.String("tag:Name"),
+				Values: []string{name},
+			},
+		},
+	}
 
-	// 	if err != nil {
-	// 		if is404(err) {
-	// 			log.InfoContext(ctx, fmt.Sprintf("GetById vm not found: %s", id))
-	// 			return nil, nil
-	// 		}
+	resp, err := vmm.vmClient.DescribeInstances(ctx, input)
+	if err != nil {
+		log.ErrorContext(ctx, fmt.Sprintf("GetByName VM not found: %s", name))
+		return nil, errors.Wrap(err, "VM GetByName")
+	}
 
-	// 		return nil, errors.Wrap(err, "VM GetById")
-	// 	}
+	if len(resp.Reservations) == 0 || len(resp.Reservations[0].Instances) == 0 {
+		msg := fmt.Sprintf("GetByName VM not found: %s", name)
+		log.ErrorContext(ctx, msg)
+		return nil, errors.Wrap(err, msg)
+	}
 
-	// 	vm := ToCloudyVirtualMachine(&resp.VirtualMachine)
+	if len(resp.Reservations) != 1 && len(resp.Reservations[0].Instances) != 1 {
+		msg := fmt.Sprintf("GetByName More than one VM found with name: %s", name)
+		log.ErrorContext(ctx, msg)
+		return nil, errors.Wrap(err, msg)	
+	}
 
-	// 	return vm, nil
+	instance := resp.Reservations[0].Instances[0]
+	vm := ToCloudyVirtualMachine(instance)
 
-	return nil, nil
+	return vm, nil
 }
 
 func (vmm *AwsVirtualMachineManager) GetAll(ctx context.Context, filter string, attrs []string) (*[]models.VirtualMachine, error) {
