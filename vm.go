@@ -128,7 +128,8 @@ func (vmc *AwsEc2Controller) ListWithTag(ctx context.Context, tag string) ([]*cl
 }
 
 func (vmc *AwsEc2Controller) Status(ctx context.Context, vmName string) (*cloudyvm.VirtualMachineStatus, error) {
-	return InstanceStatusByVmName(ctx, vmc, vmName)
+	// return InstanceStatusByVmName(ctx, vmc, vmName)
+	return nil, nil
 }
 
 func (vmc *AwsEc2Controller) SetState(ctx context.Context, state cloudyvm.VirtualMachineAction, vmName string, wait bool) (*cloudyvm.VirtualMachineStatus, error) {

@@ -6,12 +6,6 @@ import (
 	"github.com/appliedres/cloudy"
 )
 
-type AwsCredentials struct {
-	Region     		string
-	AccessKeyID     string
-	SecretAccessKey string
-}
-
 func init() {
 	cloudy.CredentialSources[AwsCredentialsKey] = &AwsCredentialLoader{}
 }
