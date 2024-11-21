@@ -12,8 +12,9 @@ import (
 	// "github.com/appliedres/cloudy/logging"
 	"github.com/appliedres/cloudy/models"
 	// "github.com/pkg/errors"
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/service/ec2"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
+
 )
 
 // const (
@@ -163,52 +164,48 @@ import (
 // 	return virtualMachineParameters
 // }
 
-
-
-func ToCloudyVirtualMachine(instance *ec2.Instance) *models.VirtualMachine {
+func ToCloudyVirtualMachine(instance types.Instance) *models.VirtualMachine {
 	cloudyVm := models.VirtualMachine{
-		ID:   *instance.InstanceId,
-		Name: *instance.InstanceId, // AWS instances typically don't have a "name"; use tags if needed
+		ID:   aws.ToString(instance.InstanceId),
+		Name: aws.ToString(instance.InstanceId), // AWS instances typically don't have a "name"; use tags if needed
 		Location: &models.VirtualMachineLocation{
-			Region: *instance.Placement.AvailabilityZone,
+			Region: aws.ToString(instance.Placement.AvailabilityZone),
 		},
 		Template: &models.VirtualMachineTemplate{},
 		Tags:     map[string]*string{},
 	}
 
 	// State
-	if instance.State != nil && instance.State.Name != nil {
-		cloudyVm.State = *instance.State.Name
+	if instance.State != nil {
+		cloudyVm.State = string(instance.State.Name)
 	}
 
 	// Status
-	if instance.State != nil && instance.State.Code != nil {
-		cloudyVm.Status = mapInstanceStateCodeToStatus(*instance.State.Code)
-	}
+	cloudyVm.Status = mapInstanceStateCodeToStatus(instance.State.Code)
 
 	// Size
-	if instance.InstanceType != nil {
-		cloudyVm.Template.Size = &models.VirtualMachineSize{
-			Name: *instance.InstanceType,
-		}
+	cloudyVm.Template.Size = &models.VirtualMachineSize{
+		Name: string(instance.InstanceType),
 	}
 
 	// Network Interfaces
 	nics := []*models.VirtualMachineNic{}
 	for _, nic := range instance.NetworkInterfaces {
 		if nic.NetworkInterfaceId != nil {
-			nics = append(nics, &models.VirtualMachineNic{ID: *nic.NetworkInterfaceId})
+			nics = append(nics, &models.VirtualMachineNic{ID: aws.ToString(nic.NetworkInterfaceId)})
 		}
 	}
 	cloudyVm.Nics = nics
 
 	// OS Disk (AWS doesn't explicitly differentiate OS Disk from others; using root volume)
-	if instance.RootDeviceName != nil && instance.BlockDeviceMappings != nil {
+	if instance.RootDeviceName != nil {
 		for _, bd := range instance.BlockDeviceMappings {
-			if bd.DeviceName != nil && *bd.DeviceName == *instance.RootDeviceName {
-				cloudyVm.OsDisk = &models.VirtualMachineDisk{
-					ID:     *bd.Ebs.VolumeId,
-					OsDisk: true,
+			if aws.ToString(bd.DeviceName) == aws.ToString(instance.RootDeviceName) {
+				if bd.Ebs != nil {
+					cloudyVm.OsDisk = &models.VirtualMachineDisk{
+						ID:     aws.ToString(bd.Ebs.VolumeId),
+						OsDisk: true,
+					}
 				}
 			}
 		}
@@ -218,10 +215,10 @@ func ToCloudyVirtualMachine(instance *ec2.Instance) *models.VirtualMachine {
 	disks := []*models.VirtualMachineDisk{}
 	for _, bd := range instance.BlockDeviceMappings {
 		if bd.Ebs != nil {
-			isOsDisk := cloudyVm.OsDisk != nil && cloudyVm.OsDisk.ID == aws.StringValue(bd.Ebs.VolumeId)
+			isOsDisk := cloudyVm.OsDisk != nil && cloudyVm.OsDisk.ID == aws.ToString(bd.Ebs.VolumeId)
 			if !isOsDisk {
 				disks = append(disks, &models.VirtualMachineDisk{
-					ID:     *bd.Ebs.VolumeId,
+					ID:     aws.ToString(bd.Ebs.VolumeId),
 					OsDisk: false,
 				})
 			}
@@ -230,14 +227,12 @@ func ToCloudyVirtualMachine(instance *ec2.Instance) *models.VirtualMachine {
 	cloudyVm.Disks = disks
 
 	// Tags
-	if instance.Tags != nil {
-		for _, tag := range instance.Tags {
-			if tag.Key != nil && tag.Value != nil {
-				if strings.EqualFold(*tag.Key, "Name") {
-					cloudyVm.Name = *tag.Value
-				} else {
-					cloudyVm.Tags[*tag.Key] = tag.Value
-				}
+	for _, tag := range instance.Tags {
+		if tag.Key != nil && tag.Value != nil {
+			if strings.EqualFold(aws.ToString(tag.Key), "Name") {
+				cloudyVm.Name = aws.ToString(tag.Value)
+			} else {
+				cloudyVm.Tags[aws.ToString(tag.Key)] = tag.Value
 			}
 		}
 	}
@@ -246,8 +241,11 @@ func ToCloudyVirtualMachine(instance *ec2.Instance) *models.VirtualMachine {
 }
 
 // Helper to map AWS instance state code to a user-defined status (optional)
-func mapInstanceStateCodeToStatus(code int64) string {
-	switch code {
+func mapInstanceStateCodeToStatus(code *int32) string {
+	if code == nil {
+		return "unknown"
+	}
+	switch *code {
 	case 16:
 		return "running"
 	case 80:
@@ -256,9 +254,6 @@ func mapInstanceStateCodeToStatus(code int64) string {
 		return "unknown"
 	}
 }
-
-
-
 
 // func ToCloudyVirtualMachineSize(ctx context.Context, resource *armcompute.ResourceSKU) *models.VirtualMachineSize {
 

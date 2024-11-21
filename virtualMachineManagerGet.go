@@ -7,7 +7,7 @@ import (
 	// "github.com/appliedres/cloudy/logging"
 	"github.com/appliedres/cloudy/models"
 	// "github.com/pkg/errors"
-	"github.com/aws/aws-sdk-go/service/ec2"
+	"github.com/aws/aws-sdk-go-v2/service/ec2"
 )
 
 func (vmm *AwsVirtualMachineManager) GetById(ctx context.Context, id string) (*models.VirtualMachine, error) {
@@ -34,23 +34,24 @@ func (vmm *AwsVirtualMachineManager) GetById(ctx context.Context, id string) (*m
 }
 
 func (vmm *AwsVirtualMachineManager) GetAll(ctx context.Context, filter string, attrs []string) (*[]models.VirtualMachine, error) {
-
 	vmList := []models.VirtualMachine{}
 
 	input := &ec2.DescribeInstancesInput{}
-	err := vmm.vmClient.DescribeInstancesPagesWithContext(ctx, input,
-		func(page *ec2.DescribeInstancesOutput, lastPage bool) bool {
-			for _, reservation := range page.Reservations {
-				for _, instance := range reservation.Instances {
-					cloudyVm := ToCloudyVirtualMachine(instance)
-					vmList = append(vmList, *cloudyVm)
-				}
+	paginator := ec2.NewDescribeInstancesPaginator(vmm.vmClient, input)
+
+	for paginator.HasMorePages() {
+		output, err := paginator.NextPage(ctx)
+		if err != nil {
+			return &vmList, err
+		}
+
+		for _, reservation := range output.Reservations {
+			for _, instance := range reservation.Instances {
+				cloudyVm := ToCloudyVirtualMachine(instance)
+				vmList = append(vmList, *cloudyVm)
 			}
-			return !lastPage
-		},
-	)
-	if err != nil {
-		return &vmList, err
+		}
 	}
+
 	return &vmList, nil
 }

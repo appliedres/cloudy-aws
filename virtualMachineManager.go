@@ -5,15 +5,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/awserr"
-
-	// "github.com/aws/aws-sdk-go/aws/credentials"
-	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/ec2"
-
-	// "github.com/aws/aws-sdk-go/service/pricing"
-	// "github.com/aws/aws-sdk-go/service/sts"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/ec2"
+	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
 
 	"github.com/appliedres/cloudy/logging"
 	"github.com/appliedres/cloudy/models"
@@ -29,7 +24,7 @@ type AwsVirtualMachineManager struct {
 	credentials *AwsCredentials
 	config      *VirtualMachineManagerConfig
 
-	vmClient *ec2.EC2
+	vmClient *ec2.Client
 	// nicClient    *armnetwork.InterfacesClient
 	// diskClient   *armcompute.DisksClient
 	// subnetClient *armnetwork.SubnetsClient
@@ -59,58 +54,57 @@ func NewAwsVirtualMachineManager(ctx context.Context, credentials *AwsCredential
 }
 
 func (vmm *AwsVirtualMachineManager) Configure(ctx context.Context) error {
-	credential, err := NewAwsCredentials(vmm.credentials)
+	credProvider, err := NewAwsCredentials(vmm.credentials)
 	if err != nil {
 		return err
 	}
 
-	sess, err := session.NewSession(&aws.Config{
-		Region:      aws.String(vmm.credentials.Region),
-		Credentials: credential,
-	})
+	cfg, err := config.LoadDefaultConfig(ctx,
+										 config.WithRegion(vmm.credentials.Region),
+										 config.WithCredentialsProvider(credProvider),
+										)
 	if err != nil {
-		return err
+		// handle error
 	}
 
-	// Initialize Aws service clients
-	vmm.vmClient = ec2.New(sess)
+	vmm.vmClient = ec2.NewFromConfig(cfg)
 
 	return nil
 }
 
 func (vmm *AwsVirtualMachineManager) Start(ctx context.Context, vmName string) error {
-	log := logging.GetLogger(ctx)
+	// log := logging.GetLogger(ctx)
 
-	var err error
-	var instStatus *cloudyvm.VirtualMachineStatus
+	// var err error
+	// var instStatus *cloudyvm.VirtualMachineStatus
 
-	instStatus, err = vmm.Status(ctx, vmName)
-	if instStatus == nil {
-		return errors.Wrap(err, "VM not found, could not stop")
-	}
-	if instStatus.PowerState == "running" {
-		log.InfoContext(ctx, "instance already running")
-		return nil
-	}
-	if err != nil {
-		return errors.Wrap(err, "Error when checking VM status")
-	}
+	// instStatus, err = vmm.Status(ctx, vmName)
+	// if instStatus == nil {
+	// 	return errors.Wrap(err, "VM not found, could not stop")
+	// }
+	// if instStatus.PowerState == "running" {
+	// 	log.InfoContext(ctx, "instance already running")
+	// 	return nil
+	// }
+	// if err != nil {
+	// 	return errors.Wrap(err, "Error when checking VM status")
+	// }
 
-	input := &ec2.StartInstancesInput{
-		InstanceIds: []*string{
-			aws.String(instStatus.ID),
-		},
-	}
+	// input := &ec2.StartInstancesInput{
+	// 	InstanceIds: []*string{
+	// 		aws.String(instStatus.ID),
+	// 	},
+	// }
 
-	_, err = vmm.vmClient.StartInstances(input)
-	if err != nil {
-		return err
-	}
+	// _, err = vmm.vmClient.StartInstances(input)
+	// if err != nil {
+	// 	return err
+	// }
 
-	err = vmm.waitForStatus(ctx, vmName, "running")
-	if err != nil {
-		return err
-	}
+	// err = vmm.waitForStatus(ctx, vmName, "running")
+	// if err != nil {
+	// 	return err
+	// }
 
 	return nil
 }
@@ -172,66 +166,54 @@ func (vmm *AwsVirtualMachineManager) Status(ctx context.Context, vmName string) 
 	// VM ID is stored as Instance Name
 	log := logging.GetLogger(ctx)
 
-	var err error
-
 	var returnList []*cloudyvm.VirtualMachineStatus
 	var result *cloudyvm.VirtualMachineStatus
 
-	instances, err := vmm.vmClient.DescribeInstances(&ec2.DescribeInstancesInput{
-		Filters: []*ec2.Filter{
+	// Call to describe instances with filters
+	output, err := vmm.vmClient.DescribeInstances(ctx, &ec2.DescribeInstancesInput{
+		Filters: []types.Filter{
 			{
-				Name: aws.String("tag:Name"),
-				Values: []*string{
-					aws.String(vmName),
-				},
+				Name:   aws.String("tag:Name"),
+				Values: []string{vmName},
 			},
 		},
 	})
-
 	if err != nil {
-		if aerr, ok := err.(awserr.Error); ok {
-			switch aerr.Code() {
-			default:
-				fmt.Println(aerr.Error())
-			}
-		} else {
-			// Print the error, cast err to awserr.Error to get the Code and
-			// Message from an error.
-			fmt.Println(err.Error())
-		}
-		return nil, err
-	} else if instances == nil {
-		log.InfoContext(ctx, "No instances found with Instance Name Tag '%s'", vmName)
+		log.ErrorContext(ctx, "Failed to describe instances: %v", err)
 		return nil, err
 	}
+	if len(output.Reservations) == 0 {
+		log.InfoContext(ctx, "No instances found with Instance Name Tag '%s'", vmName)
+		return nil, nil
+	}
 
-	for _, reservation := range instances.Reservations {
+	// Process reservations and instances
+	for _, reservation := range output.Reservations {
 		for _, instance := range reservation.Instances {
 			vmStatus := &cloudyvm.VirtualMachineStatus{}
 
-			vmStatus.Name = ""
-			for _, t := range instance.Tags {
-				if *t.Key == "Name" {
-					vmStatus.Name = *t.Value
+			// Find and assign the Name tag
+			for _, tag := range instance.Tags {
+				if *tag.Key == "Name" {
+					vmStatus.Name = *tag.Value
 				}
 			}
-			vmStatus.PowerState = *instance.State.Name
+			vmStatus.PowerState = string(instance.State.Name)
 			vmStatus.ID = *instance.InstanceId
 
 			returnList = append(returnList, vmStatus)
 		}
 	}
 
+	// Handle multiple or no results
 	if len(returnList) > 1 {
 		result = returnList[0]
 		err = errors.Wrap(err, fmt.Sprintf("more than one instance found with name '%s', returning only the first", vmName))
 	} else if len(returnList) == 1 {
 		result = returnList[0]
 	} else {
-		return nil, err
+		return nil, errors.New("no instances found")
 	}
-
-	// TODO: nil status
 
 	return result, err
 }

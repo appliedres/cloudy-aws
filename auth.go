@@ -4,21 +4,21 @@ import (
 	"fmt"
 	"strings"
 
-	// "github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/credentials"
-	// "github.com/aws/aws-sdk-go/aws/session"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/credentials"
+
 	"github.com/appliedres/cloudy"
 )
 
 const DefaultRegion = "us-gov-east-1"
 
 type AwsCredentials struct {
-	Type      string // Can be any type of CredType*
-	Region    string
-	AccessKeyID string
+	Type            string // Can be any type of CredType*
+	Region          string
+	AccessKeyID     string
 	SecretAccessKey string
-	SessionToken string
-	Location string
+	SessionToken    string
+	Location        string
 }
 
 const (
@@ -78,7 +78,7 @@ func fixRegionName(regionName string) string {
 // 	}
 // }
 
-func NewAwsCredentials(awsCred *AwsCredentials) (*credentials.Credentials, error) {
+func NewAwsCredentials(awsCred *AwsCredentials) (aws.CredentialsProvider, error) {
 	credType := strings.ToLower(awsCred.Type)
 	if credType == "" {
 		if awsCred.AccessKeyID != "" && awsCred.SecretAccessKey != "" {
@@ -90,15 +90,23 @@ func NewAwsCredentials(awsCred *AwsCredentials) (*credentials.Credentials, error
 
 	switch credType {
 	case CredTypeStatic:
-		return credentials.NewStaticCredentials(awsCred.AccessKeyID, 
-												awsCred.SecretAccessKey,
-												awsCred.SessionToken), nil
+		return credentials.NewStaticCredentialsProvider(
+			awsCred.AccessKeyID,
+			awsCred.SecretAccessKey,
+			awsCred.SessionToken,
+		), nil
 
-	case CredTypeEnv:
-		return credentials.NewEnvCredentials(), nil
+	// case CredTypeEnv:
+	// 	// Environment-based credentials provider
+	// 	return aws.NewCredentialsCache(credentials.NewEnvironmentCredential()), nil
 
-	case CredTypeDefault:
-		return credentials.NewCredentials(&credentials.ChainProvider{}), nil
+	// case CredTypeDefault:
+	// 	// Default credential chain provider
+	// 	cfg, err := config.LoadDefaultConfig(context.Background())
+	// 	if err != nil {
+	// 		return nil, fmt.Errorf("failed to load default AWS config: %w", err)
+	// 	}
+	// 	return cfg.Credentials, nil
 
 	default:
 		return nil, fmt.Errorf("unknown credential type: %v", credType)
@@ -129,11 +137,11 @@ func GetAzureCredentialsFromEnv(env *cloudy.Environment) AwsCredentials {
 		return creds.(AwsCredentials)
 	}
 	credentials := AwsCredentials{
-		Region:    env.Default("AWS_REGION", DefaultRegion),
-		Type:      env.Default("AWS_CRED_TYPE", ""),
-		AccessKeyID: env.Default("AWS_ACCESS_KEY", ""),
+		Region:          env.Default("AWS_REGION", DefaultRegion),
+		Type:            env.Default("AWS_CRED_TYPE", ""),
+		AccessKeyID:     env.Default("AWS_ACCESS_KEY", ""),
 		SecretAccessKey: env.Default("AWS_SECRET_KEY", ""),
-		Location:  env.Default("AWS_LOCATION", ""),
+		Location:        env.Default("AWS_LOCATION", ""),
 	}
 	return credentials
 }
