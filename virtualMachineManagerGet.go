@@ -26,8 +26,9 @@ func (vmm *AwsVirtualMachineManager) GetByName(ctx context.Context, name string)
 
 	resp, err := vmm.vmClient.DescribeInstances(ctx, input)
 	if err != nil {
-		log.ErrorContext(ctx, fmt.Sprintf("GetByName VM not found: %s", name))
-		return nil, errors.Wrap(err, "VM GetByName")
+		msg := fmt.Sprintf("GetByName Failed for name: %s", name)
+		log.ErrorContext(ctx, msg)
+		return nil, errors.Wrap(err, msg)	
 	}
 
 	if len(resp.Reservations) == 0 || len(resp.Reservations[0].Instances) == 0 {

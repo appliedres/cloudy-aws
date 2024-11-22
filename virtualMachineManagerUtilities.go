@@ -180,9 +180,6 @@ func ToCloudyVirtualMachine(instance types.Instance) *models.VirtualMachine {
 		cloudyVm.State = string(instance.State.Name)
 	}
 
-	// Status
-	cloudyVm.Status = mapInstanceStateCodeToStatus(instance.State.Code)
-
 	// Size
 	cloudyVm.Template.Size = &models.VirtualMachineSize{
 		Name: string(instance.InstanceType),
@@ -238,21 +235,6 @@ func ToCloudyVirtualMachine(instance types.Instance) *models.VirtualMachine {
 	}
 
 	return &cloudyVm
-}
-
-// Helper to map AWS instance state code to a user-defined status (optional)
-func mapInstanceStateCodeToStatus(code *int32) string {
-	if code == nil {
-		return "unknown"
-	}
-	switch *code {
-	case 16:
-		return "running"
-	case 80:
-		return "stopped"
-	default:
-		return "unknown"
-	}
 }
 
 // func ToCloudyVirtualMachineSize(ctx context.Context, resource *armcompute.ResourceSKU) *models.VirtualMachineSize {

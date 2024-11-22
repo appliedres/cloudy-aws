@@ -2,13 +2,10 @@ package cloudyaws
 
 import (
 	"context"
-	"fmt"
 	"time"
 
-	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
-	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
 
 	"github.com/appliedres/cloudy/logging"
 	"github.com/appliedres/cloudy/models"
@@ -64,7 +61,7 @@ func (vmm *AwsVirtualMachineManager) Configure(ctx context.Context) error {
 										 config.WithCredentialsProvider(credProvider),
 										)
 	if err != nil {
-		// handle error
+		return err
 	}
 
 	vmm.vmClient = ec2.NewFromConfig(cfg)
@@ -73,56 +70,71 @@ func (vmm *AwsVirtualMachineManager) Configure(ctx context.Context) error {
 }
 
 func (vmm *AwsVirtualMachineManager) Start(ctx context.Context, vmName string) error {
-	// log := logging.GetLogger(ctx)
+	log := logging.GetLogger(ctx)
 
-	// var err error
-	// var instStatus *cloudyvm.VirtualMachineStatus
+	var err error
 
-	// instStatus, err = vmm.Status(ctx, vmName)
-	// if instStatus == nil {
-	// 	return errors.Wrap(err, "VM not found, could not stop")
-	// }
-	// if instStatus.PowerState == "running" {
-	// 	log.InfoContext(ctx, "instance already running")
-	// 	return nil
-	// }
-	// if err != nil {
-	// 	return errors.Wrap(err, "Error when checking VM status")
-	// }
+	vm, err := vmm.GetByName(ctx, vmName)
+	if err != nil {
+		return errors.Wrap(err, "Error when checking VM status")
+	}
+	if vm.State == "" {
+		return errors.Wrap(err, "VM status not found, could not stop")
+	}
+	if vm.State == "running" {
+		log.InfoContext(ctx, "instance already running")
+		return nil
+	}
 
-	// input := &ec2.StartInstancesInput{
-	// 	InstanceIds: []*string{
-	// 		aws.String(instStatus.ID),
-	// 	},
-	// }
+	input := &ec2.StartInstancesInput{
+		InstanceIds: []string{vm.ID},
+	}
 
-	// _, err = vmm.vmClient.StartInstances(input)
-	// if err != nil {
-	// 	return err
-	// }
+	_, err = vmm.vmClient.StartInstances(ctx, input)
+	if err != nil {
+		return err
+	}
 
-	// err = vmm.waitForStatus(ctx, vmName, "running")
-	// if err != nil {
-	// 	return err
-	// }
+	err = vmm.waitForStatus(ctx, vmName, "running")
+	if err != nil {
+		return err
+	}
 
 	return nil
 }
 
 func (vmm *AwsVirtualMachineManager) Stop(ctx context.Context, vmName string) error {
-	// log := logging.GetLogger(ctx)
+	log := logging.GetLogger(ctx)
 
-	// poller, err := vmm.vmClient.BeginPowerOff(ctx, vmm.credentials.ResourceGroup, vmName, &armcompute.VirtualMachinesClientBeginPowerOffOptions{})
-	// if err != nil {
-	// 	return errors.Wrap(err, "VM Stop")
-	// }
+	var err error
 
-	// _, err = pollWrapper(ctx, poller, "VM Stop")
-	// if err != nil {
-	// 	return errors.Wrap(err, "VM Stop")
-	// }
+	vm, err := vmm.GetByName(ctx, vmName)
+	if err != nil {
+		return errors.Wrap(err, "Error when checking VM status")
+	}
 
-	// log.InfoContext(ctx, "VM Stop complete")
+	if vm.State == "" {
+		return errors.Wrap(err, "VM status not found, could not stop")
+	}
+
+	if vm.State == "stopped" {
+		log.InfoContext(ctx, "Instance already stopped")
+		return nil
+	}
+
+	input := &ec2.StopInstancesInput{
+		InstanceIds: []string{vm.ID},
+	}
+
+	_, err = vmm.vmClient.StopInstances(ctx, input)
+	if err != nil {
+		return errors.Wrap(err, "Error stopping VM")
+	}
+
+	err = vmm.waitForStatus(ctx, vmName, "stopped")
+	if err != nil {
+		return err
+	}
 
 	return nil
 }
@@ -159,64 +171,6 @@ func (vmm *AwsVirtualMachineManager) Update(ctx context.Context, vm *models.Virt
 // 	return nil
 // }
 
-// given a VM Name, find the status of the underlying instance
-// The instance will have a name tag matching the VM Name
-// returns nil if no matching instance found
-func (vmm *AwsVirtualMachineManager) Status(ctx context.Context, vmName string) (*cloudyvm.VirtualMachineStatus, error) {
-	// VM ID is stored as Instance Name
-	log := logging.GetLogger(ctx)
-
-	var returnList []*cloudyvm.VirtualMachineStatus
-	var result *cloudyvm.VirtualMachineStatus
-
-	// Call to describe instances with filters
-	output, err := vmm.vmClient.DescribeInstances(ctx, &ec2.DescribeInstancesInput{
-		Filters: []types.Filter{
-			{
-				Name:   aws.String("tag:Name"),
-				Values: []string{vmName},
-			},
-		},
-	})
-	if err != nil {
-		log.ErrorContext(ctx, "Failed to describe instances: %v", err)
-		return nil, err
-	}
-	if len(output.Reservations) == 0 {
-		log.InfoContext(ctx, "No instances found with Instance Name Tag '%s'", vmName)
-		return nil, nil
-	}
-
-	// Process reservations and instances
-	for _, reservation := range output.Reservations {
-		for _, instance := range reservation.Instances {
-			vmStatus := &cloudyvm.VirtualMachineStatus{}
-
-			// Find and assign the Name tag
-			for _, tag := range instance.Tags {
-				if *tag.Key == "Name" {
-					vmStatus.Name = *tag.Value
-				}
-			}
-			vmStatus.PowerState = string(instance.State.Name)
-			vmStatus.ID = *instance.InstanceId
-
-			returnList = append(returnList, vmStatus)
-		}
-	}
-
-	// Handle multiple or no results
-	if len(returnList) > 1 {
-		result = returnList[0]
-		err = errors.Wrap(err, fmt.Sprintf("more than one instance found with name '%s', returning only the first", vmName))
-	} else if len(returnList) == 1 {
-		result = returnList[0]
-	} else {
-		return nil, errors.New("no instances found")
-	}
-
-	return result, err
-}
 
 // wait for a given VM to reach a specific status
 func (vmm *AwsVirtualMachineManager) waitForStatus(ctx context.Context, vmName string, desired_status string) error {
@@ -226,17 +180,17 @@ func (vmm *AwsVirtualMachineManager) waitForStatus(ctx context.Context, vmName s
 	timeStart := time.Now()
 	n := 1
 	for {
-		status, err := vmm.Status(ctx, vmName)
+		vm, err := vmm.GetByName(ctx, vmName)
 		if err != nil {
 			return err
 		}
 
-		if status.PowerState == desired_status {
+		if vm.State == desired_status {
 			log.InfoContext(ctx, "[%s] VM status reached '%s' in %.2f seconds", vmName, desired_status, float64(time.Since(timeStart)/time.Millisecond)/1000.0)
 			break
 		}
 
-		log.InfoContext(ctx, "[%s] waiting for instances to transition from '%s' to '%s'", vmName, status.PowerState, desired_status)
+		log.InfoContext(ctx, "[%s] waiting for instances to transition from '%s' to '%s'", vmName, vm.State, desired_status)
 		expBackoff(ctx, n, 32000)
 		n = n + 1
 	}
