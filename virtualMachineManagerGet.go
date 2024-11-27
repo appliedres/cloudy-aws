@@ -12,35 +12,35 @@ import (
 	"github.com/pkg/errors"
 )
 
-func (vmm *AwsVirtualMachineManager) GetByName(ctx context.Context, name string) (*models.VirtualMachine, error) {
+func (vmm *AwsVirtualMachineManager) GetById(ctx context.Context, UVMID string) (*models.VirtualMachine, error) {
 	log := logging.GetLogger(ctx)
 
 	input := &ec2.DescribeInstancesInput{
 		Filters: []types.Filter{
 			{
-				Name:   aws.String("tag:Name"),
-				Values: []string{name},
+				Name:   aws.String("tag:UVMID"),
+				Values: []string{UVMID},
 			},
 		},
 	}
 
 	resp, err := vmm.vmClient.DescribeInstances(ctx, input)
 	if err != nil {
-		msg := fmt.Sprintf("GetByName Failed for name: %s", name)
+		msg := fmt.Sprintf("GetByID Failed for UVMID: %s", UVMID)
 		log.ErrorContext(ctx, msg)
-		return nil, errors.Wrap(err, msg)	
+		return nil, errors.Wrap(err, msg)
 	}
 
 	if len(resp.Reservations) == 0 || len(resp.Reservations[0].Instances) == 0 {
-		msg := fmt.Sprintf("GetByName VM not found: %s", name)
+		msg := fmt.Sprintf("GetByID VM not found: %s", UVMID)
 		log.ErrorContext(ctx, msg)
 		return nil, errors.Wrap(err, msg)
 	}
 
 	if len(resp.Reservations) != 1 && len(resp.Reservations[0].Instances) != 1 {
-		msg := fmt.Sprintf("GetByName More than one VM found with name: %s", name)
+		msg := fmt.Sprintf("GetByID More than one VM found with UVMID: %s", UVMID)
 		log.ErrorContext(ctx, msg)
-		return nil, errors.Wrap(err, msg)	
+		return nil, errors.Wrap(err, msg)
 	}
 
 	instance := resp.Reservations[0].Instances[0]

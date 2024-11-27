@@ -9,15 +9,13 @@ replace github.com/appliedres/cloudy => ../cloudy
 require (
 	github.com/appliedres/cloudy v0.0.46
 	github.com/aws/aws-sdk-go v1.44.20
-	github.com/hashicorp/go-version v1.7.0
+	github.com/aws/aws-sdk-go-v2 v1.32.5
+	github.com/aws/aws-sdk-go-v2/credentials v1.17.46
 	github.com/pkg/errors v0.9.1
 	github.com/stretchr/testify v1.9.0
-	gopkg.in/gomail.v2 v2.0.0-20160411212932-81ebce5c23df
 )
 
 require (
-	github.com/aws/aws-sdk-go-v2 v1.32.5 // indirect
-	github.com/aws/aws-sdk-go-v2/credentials v1.17.46 // indirect
 	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.16.20 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/configsources v1.3.24 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.6.24 // indirect
@@ -29,6 +27,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/sts v1.33.1 // indirect
 	github.com/aws/smithy-go v1.22.1 // indirect
 	github.com/google/go-cmp v0.5.8 // indirect
+	gopkg.in/gomail.v2 v2.0.0-20160411212932-81ebce5c23df // indirect
 )
 
 require (

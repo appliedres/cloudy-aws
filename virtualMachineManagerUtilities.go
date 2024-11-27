@@ -1,168 +1,91 @@
 package cloudyaws
 
 import (
-	// "context"
-	// "fmt"
-	// "net/http"
-	// "strconv"
+	"context"
+	"github.com/pkg/errors"
+	"fmt"
 	"strings"
-	// "time"
 
-	// "github.com/appliedres/cloudy"
-	// "github.com/appliedres/cloudy/logging"
+	"github.com/appliedres/cloudy/logging"
 	"github.com/appliedres/cloudy/models"
-	// "github.com/pkg/errors"
-	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/ec2"
+	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
 )
 
-// const (
-// 	vmNameTagKey = "Name"
-// )
+func FromCloudyVirtualMachine(ctx context.Context, vm *models.VirtualMachine) *ec2.RunInstancesInput {
+	log := logging.GetLogger(ctx)
 
-// func toResponseError(err error) *azcore.ResponseError {
-// 	var respErr *azcore.ResponseError
-// 	if !errors.As(err, &respErr) {
-// 		return respErr
-// 	}
+	tags := []types.Tag{
+		{
+			Key:   aws.String("Name"),
+			Value: aws.String(vm.Name),
+		},
+	}
+	if vm.Tags != nil {
+		for k, v := range vm.Tags {
+			tags = append(tags, types.Tag{
+				Key:   aws.String(k),
+				Value: v,
+			})
+		}
+	}
 
-// 	return nil
-// }
+	if vm.Template != nil && vm.Template.Tags != nil {
+		for k, v := range vm.Template.Tags {
+			exists := false
+			for _, tag := range tags {
+				if *tag.Key == k {
+					exists = true
+					break
+				}
+			}
+			if !exists {
+				tags = append(tags, types.Tag{
+					Key:   aws.String(k),
+					Value: v,
+				})
+			}
+		}
+	}
 
-// func is404(err error) bool {
-// 	respErr := toResponseError(err)
+	runInstancesInput := &ec2.RunInstancesInput{
+		ImageId:      aws.String(vm.OsBaseImageID),
+		InstanceType: types.InstanceType(vm.Template.Size.ID),
+		TagSpecifications: []types.TagSpecification{
+			{
+				ResourceType: types.ResourceTypeInstance,
+				Tags:         tags,
+			},
+		},
+		MinCount: aws.Int32(1),
+		MaxCount: aws.Int32(1),
+	}
 
-// 	if respErr != nil && respErr.StatusCode == http.StatusNotFound || bloberror.HasCode(err, bloberror.ResourceNotFound, "ShareNotFound") {
-// 		return true
-// 	}
+	// TODO: configure os settings
+	// switch vm.Template.OperatingSystem {
+	// case "windows":
+	// 	runInstancesInput.UserData = aws.String(cloudy.GenerateWindowsUserData(vm.Template.LocalAdministratorID))
+	// case "linux":
+	// 	runInstancesInput.UserData = aws.String(cloudy.GenerateLinuxUserData(vm.Template.LocalAdministratorID))
+	// }
 
-// 	return false
-// }
+	// attach network interfaces
+	if vm.Nics != nil {
+		networkInterfaces := []types.InstanceNetworkInterfaceSpecification{}
+		for _, nic := range vm.Nics {
+			networkInterfaces = append(networkInterfaces, types.InstanceNetworkInterfaceSpecification{
+				NetworkInterfaceId: aws.String(nic.ID),
+				DeviceIndex:        aws.Int32(0),
+			})
+		}
+		runInstancesInput.NetworkInterfaces = networkInterfaces
+	}
 
-// func pollWrapper[T any](ctx context.Context, poller *runtime.Poller[T], pollerType string) (*T, error) {
-// 	log := logging.GetLogger(ctx)
-
-// 	ticker := time.NewTicker(5 * time.Second)
-// 	startTime := time.Now()
-// 	defer ticker.Stop()
-// 	defer func() {
-// 		log.InfoContext(ctx, fmt.Sprintf("%s complete (elapsed: %s)", pollerType,
-// 			fmt.Sprintf("%.0f seconds", time.Since(startTime).Seconds())))
-// 	}()
-
-// 	for {
-// 		select {
-// 		case <-ticker.C:
-// 			log.InfoContext(ctx, fmt.Sprintf("Waiting for %s to complete (elapsed: %s)",
-// 				pollerType, fmt.Sprintf("%.0f seconds", time.Since(startTime).Seconds())))
-// 		default:
-// 			_, err := poller.Poll(ctx)
-// 			if err != nil {
-// 				return nil, errors.Wrapf(err, "pollWrapper: %s (Poll)", pollerType)
-// 			}
-// 			if poller.Done() {
-// 				response, err := poller.Result(ctx)
-
-// 				if err != nil {
-// 					return nil, errors.Wrapf(err, "pollWrapper: %s (Result)", pollerType)
-// 				}
-
-// 				return &response, nil
-// 			}
-// 		}
-// 	}
-// }
-
-// func FromCloudyVirtualMachine(ctx context.Context, vm *models.VirtualMachine) armcompute.VirtualMachine {
-// 	log := logging.GetLogger(ctx)
-
-// 	virtualMachineParameters := armcompute.VirtualMachine{
-// 		// vm Id is saved as ID and Name
-// 		// vm Name is saved in a Tag
-// 		ID:       &vm.ID,
-// 		Name:     &vm.ID,
-// 		Location: &vm.Location.Region,
-// 		Identity: &armcompute.VirtualMachineIdentity{
-// 			Type: to.Ptr(armcompute.ResourceIdentityTypeNone),
-// 		},
-// 	}
-
-// 	if vm.Tags != nil {
-// 		virtualMachineParameters.Tags = vm.Tags
-// 		virtualMachineParameters.Tags[vmNameTagKey] = &vm.Name
-// 	}
-
-// 	if vm.Template == nil {
-// 		vm.Template = &models.VirtualMachineTemplate{}
-// 	}
-
-// 	if vm.Template.Tags != nil {
-// 		for k, v := range vm.Template.Tags {
-// 			_, ok := virtualMachineParameters.Tags[k]
-
-// 			// Will not overwrite tags already in the VM object
-// 			if !ok {
-// 				virtualMachineParameters.Tags[k] = v
-// 			}
-// 		}
-// 	}
-
-// 	virtualMachineParameters.Properties = &armcompute.VirtualMachineProperties{
-
-// 		HardwareProfile: &armcompute.HardwareProfile{
-// 			VMSize: (*armcompute.VirtualMachineSizeTypes)(&vm.Template.Size.ID),
-// 		},
-// 		StorageProfile: &armcompute.StorageProfile{
-// 			ImageReference: &armcompute.ImageReference{
-// 				ID: &vm.OsBaseImageID,
-// 			},
-// 			OSDisk: &armcompute.OSDisk{
-// 				CreateOption: to.Ptr(armcompute.DiskCreateOptionTypesFromImage),
-// 			},
-// 		},
-// 		// SecurityProfile: &armcompute.SecurityProfile{
-// 		// 	SecurityType: to.Ptr(armcompute.SecurityTypesTrustedLaunch),
-// 		// },
-// 	}
-
-// 	virtualMachineParameters.Properties.OSProfile = &armcompute.OSProfile{
-// 		ComputerName:  to.Ptr(vm.ID),
-// 		AdminUsername: &vm.Template.LocalAdministratorID,
-// 		AdminPassword: to.Ptr(cloudy.GeneratePassword(15, 2, 2, 2)),
-// 	}
-// 	log.InfoContext(ctx, fmt.Sprintf("%+v", virtualMachineParameters.Properties.OSProfile))
-
-// 	switch vm.Template.OperatingSystem {
-// 	case "windows":
-// 		virtualMachineParameters.Properties.StorageProfile.OSDisk.OSType = to.Ptr(armcompute.OperatingSystemTypesWindows)
-// 		virtualMachineParameters.Properties.OSProfile.WindowsConfiguration = &armcompute.WindowsConfiguration{}
-// 	case "linux":
-// 		virtualMachineParameters.Properties.StorageProfile.OSDisk.OSType = to.Ptr(armcompute.OperatingSystemTypesLinux)
-// 		virtualMachineParameters.Properties.OSProfile.LinuxConfiguration = &armcompute.LinuxConfiguration{
-// 			DisablePasswordAuthentication: to.Ptr(true),
-// 			ProvisionVMAgent:              to.Ptr(true),
-// 		}
-// 		virtualMachineParameters.Properties.OSProfile.AllowExtensionOperations = to.Ptr(true)
-
-// 	}
-
-// 	nics := []*armcompute.NetworkInterfaceReference{}
-
-// 	for _, cloudyNic := range vm.Nics {
-// 		nic := &armcompute.NetworkInterfaceReference{
-// 			ID: &cloudyNic.ID,
-// 		}
-
-// 		nics = append(nics, nic)
-// 	}
-
-// 	virtualMachineParameters.Properties.NetworkProfile = &armcompute.NetworkProfile{
-// 		NetworkInterfaces: nics,
-// 	}
-
-// 	return virtualMachineParameters
-// }
+	log.InfoContext(ctx, fmt.Sprintf("prepared EC2 instance input: %+v", runInstancesInput))
+	return runInstancesInput
+}
 
 func ToCloudyVirtualMachine(instance types.Instance) *models.VirtualMachine {
 	cloudyVm := models.VirtualMachine{
@@ -373,3 +296,102 @@ func ToCloudyVirtualMachine(instance types.Instance) *models.VirtualMachine {
 // 		Region: *location,
 // 	}
 // }
+
+
+// UpdateCloudyVirtualMachine updates the Cloudy VirtualMachine with details from an AWS EC2 instance.
+func UpdateCloudyVirtualMachine(vm *models.VirtualMachine, instance *types.Instance) (*models.VirtualMachine, error) {
+    if vm.ID == "" {
+        vm.ID = *instance.InstanceId
+    }
+
+    if vm.State == "" {
+        vm.State = string(instance.State.Name)
+    }
+
+    if vm.Location == nil {
+        vm.Location = &models.VirtualMachineLocation{
+            Region: *instance.Placement.AvailabilityZone,
+        }
+    }
+
+	if vm.Tags == nil {
+		vm.Tags = make(map[string]*string)
+	}
+	
+	vm.Tags["AWSID"] = instance.InstanceId
+
+	vm.Name = ""
+	for _, tag := range instance.Tags {
+		if *tag.Key == "Name" {
+			vm.Name = *tag.Value
+		}
+		
+		vm.Tags[*tag.Key] = tag.Value
+	}
+	if vm.Name == "" {
+		return nil, errors.New("Error translating AWS VM to cloudy VM, no 'Name' tag found")
+	}
+
+	if instance.State.Name != "" {
+		vm.State = string(instance.State.Name)
+	} else {
+		return nil, fmt.Errorf("VM Create: missing state information from AWS instance")
+	}
+
+    if vm.OsBaseImageID == "" && instance.ImageId != nil {
+        vm.OsBaseImageID = *instance.ImageId
+    }
+
+	// TODO: add disks
+    // if len(vm.Disks) == 0 {
+    //     vm.Disks = append(vm.Disks, &models.VirtualMachineDisk{
+    //         ID: *instance.BlockDeviceMappings[0].Ebs.VolumeId, // Example of attaching an EBS disk
+    //     })
+    // }
+
+    if vm.Status == "" && instance.State.Name != "" {
+        vm.Status = string(instance.State.Name) // Use string directly without dereferencing
+    }
+
+	// TODO: update template
+    // if vm.Template == nil {
+    //     vm.Template = &models.VirtualMachineTemplate{
+    //         Name: *instance.InstanceType,
+    //     }
+    // }
+
+    return vm, nil
+}
+
+func (vmm *AwsVirtualMachineManager) FindVMByName(ctx context.Context, name string) (*models.VirtualMachine, error) {
+	log := logging.GetLogger(ctx)
+
+	// Filter instances by the "Name" tag
+	input := &ec2.DescribeInstancesInput{
+		Filters: []types.Filter{
+			{
+				Name:   aws.String("tag:Name"),
+				Values: []string{name},
+			},
+			{
+				Name:   aws.String("instance-state-name"),
+				Values: []string{"pending", "running", "stopping", "stopped"}, // Exclude terminated instances
+			},
+		},
+	}
+
+	output, err := vmm.vmClient.DescribeInstances(ctx, input)
+	if err != nil {
+		return nil, errors.Wrap(err, "finding VM by name")
+	}
+
+	for _, reservation := range output.Reservations {
+		for _, instance := range reservation.Instances {
+			log.InfoContext(ctx, fmt.Sprintf("VM with name '%s' found: %s", name, *instance.InstanceId))
+			return ToCloudyVirtualMachine(instance), nil
+		}
+	}
+
+	log.InfoContext(ctx, fmt.Sprintf("No VM found with name: %s", name))
+	return nil, nil
+}

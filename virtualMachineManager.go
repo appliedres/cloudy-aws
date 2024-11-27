@@ -22,14 +22,6 @@ type AwsVirtualMachineManager struct {
 	config      *VirtualMachineManagerConfig
 
 	vmClient *ec2.Client
-	// nicClient    *armnetwork.InterfacesClient
-	// diskClient   *armcompute.DisksClient
-	// subnetClient *armnetwork.SubnetsClient
-
-	// dataClient  *armcompute.ResourceSKUsClient
-	// usageClient *armcompute.UsageClient
-
-	// galleryClient *armcompute.SharedGalleryImageVersionsClient
 
 	LogBody bool
 }
@@ -57,9 +49,9 @@ func (vmm *AwsVirtualMachineManager) Configure(ctx context.Context) error {
 	}
 
 	cfg, err := config.LoadDefaultConfig(ctx,
-										 config.WithRegion(vmm.credentials.Region),
-										 config.WithCredentialsProvider(credProvider),
-										)
+		config.WithRegion(vmm.credentials.Region),
+		config.WithCredentialsProvider(credProvider),
+	)
 	if err != nil {
 		return err
 	}
@@ -74,7 +66,7 @@ func (vmm *AwsVirtualMachineManager) Start(ctx context.Context, vmName string) e
 
 	var err error
 
-	vm, err := vmm.GetByName(ctx, vmName)
+	vm, err := vmm.GetById(ctx, vmName)
 	if err != nil {
 		return errors.Wrap(err, "Error when checking VM status")
 	}
@@ -108,7 +100,7 @@ func (vmm *AwsVirtualMachineManager) Stop(ctx context.Context, vmName string) er
 
 	var err error
 
-	vm, err := vmm.GetByName(ctx, vmName)
+	vm, err := vmm.GetById(ctx, vmName)
 	if err != nil {
 		return errors.Wrap(err, "Error when checking VM status")
 	}
@@ -140,26 +132,7 @@ func (vmm *AwsVirtualMachineManager) Stop(ctx context.Context, vmName string) er
 }
 
 func (vmm *AwsVirtualMachineManager) Deallocate(ctx context.Context, vmName string) error {
-	// log := logging.GetLogger(ctx)
-
-	// poller, err := vmm.vmClient.BeginDeallocate(ctx, vmm.credentials.ResourceGroup, vmName, &armcompute.VirtualMachinesClientBeginDeallocateOptions{})
-	// if err != nil {
-	// 	if is404(err) {
-	// 		log.InfoContext(ctx, "BeginDeallocate - VM not found")
-	// 		return nil
-	// 	}
-
-	// 	return errors.Wrap(err, "VM Deallocate")
-	// }
-
-	// _, err = pollWrapper(ctx, poller, "VM Deallocate")
-	// if err != nil {
-	// 	return errors.Wrap(err, "VM Deallocate")
-	// }
-
-	// log.InfoContext(ctx, "VM Deallocate complete")
-
-	return nil
+	return vmm.Stop(ctx, vmName)
 }
 
 func (vmm *AwsVirtualMachineManager) Update(ctx context.Context, vm *models.VirtualMachine) (*models.VirtualMachine, error) {
@@ -171,7 +144,6 @@ func (vmm *AwsVirtualMachineManager) Update(ctx context.Context, vm *models.Virt
 // 	return nil
 // }
 
-
 // wait for a given VM to reach a specific status
 func (vmm *AwsVirtualMachineManager) waitForStatus(ctx context.Context, vmName string, desired_status string) error {
 	log := logging.GetLogger(ctx)
@@ -180,7 +152,7 @@ func (vmm *AwsVirtualMachineManager) waitForStatus(ctx context.Context, vmName s
 	timeStart := time.Now()
 	n := 1
 	for {
-		vm, err := vmm.GetByName(ctx, vmName)
+		vm, err := vmm.GetById(ctx, vmName)
 		if err != nil {
 			return err
 		}
